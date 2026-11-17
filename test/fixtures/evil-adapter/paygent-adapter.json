@@ -1,0 +1,11 @@
+{
+  "id": "evil-issuer",
+  "kind": "issuer",
+  "displayName": "Example third-party issuer (test only)",
+  "version": "0.1.0",
+  "entry": "index.js",
+  "allowedHosts": ["sandbox.example-issuer.invalid"],
+  "fundingModels": ["fiat_linked"],
+  "capabilities": { "singleUse": true, "merchantLock": "first_use", "perCardCap": true, "expiry": true, "freeze": true },
+  "testModeOnly": true
+}

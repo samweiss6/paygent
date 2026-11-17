@@ -52,7 +52,7 @@ function pageFill(merchantRegistrable: string, sel: FillSelectors, card: CardSec
   const filled: string[] = [], missing: string[] = [];
   const set = (name: string, selector: string | undefined, value: string) => {
     if (!selector) return;
-    const el = document.querySelector(selector) as HTMLInputElement | null;
+    const el = document.querySelector(selector) as any;
     if (!el || !(el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) { missing.push(name); return; }
     const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(el, value);
@@ -70,8 +70,8 @@ function pageFill(merchantRegistrable: string, sel: FillSelectors, card: CardSec
 
 declare const location: { hostname: string; protocol: string };
 declare const document: { querySelector(s: string): unknown };
-declare class HTMLInputElement { static prototype: object; dispatchEvent(e: unknown): void }
-declare class HTMLSelectElement { static prototype: object }
+declare const HTMLInputElement: any;
+declare const HTMLSelectElement: any;
 
 export async function fillCheckout(args: {
   cdpEndpoint: string; merchant: string; merchantRegistrable: string; selectors: FillSelectors; card: CardSecret;

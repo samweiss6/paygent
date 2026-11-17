@@ -88,7 +88,7 @@ test("stricterOf never loosens", () => {
 test("merchant normalization rejects spoofing forms", () => {
   for (const bad of ["https://bookshop.org@evil.com", "evil.com/bookshop.org", "127.0.0.1", "localhost", "http://[::1]/",
                      "bооkshop.org" /* Cyrillic o */, "bookshop", "shop.example", "https://bookshop.org:8443", "javascript:alert(1)", "a..b.com"]) {
-    assert.throws(() => normalizeMerchant(bad), undefined, bad);
+    assert.throws(() => normalizeMerchant(bad), Error, bad);
   }
   assert.equal(normalizeMerchant("HTTPS://Shop.Bookshop.org/cart?x=1"), "shop.bookshop.org");
   assert.ok(merchantMatches("shop.bookshop.org", "bookshop.org"));
@@ -96,6 +96,6 @@ test("merchant normalization rejects spoofing forms", () => {
 });
 
 test("amount parsing is strict", () => {
-  for (const bad of ["1e3", "-5", "5.001", " 5", "0x10", "5,00", "", "NaN", "Infinity"]) assert.throws(() => usdToCents(bad), undefined, bad);
+  for (const bad of ["1e3", "-5", "5.001", " 5", "0x10", "5,00", "", "NaN", "Infinity"]) assert.throws(() => usdToCents(bad), Error, bad);
   assert.equal(usdToCents("23.4"), 2340);
 });

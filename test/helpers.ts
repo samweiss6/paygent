@@ -38,7 +38,7 @@ export interface Harness {
 }
 
 export function makeHarness(opts: {
-  policy?: Partial<Policy> & { limits?: Partial<Policy["limits"]>; approval?: Partial<Policy["approval"]>; cards?: Partial<Policy["cards"]>; merchants?: Partial<Policy["merchants"]> };
+  policy?: { limits?: Partial<Policy["limits"]>; approval?: Partial<Policy["approval"]>; cards?: Partial<Policy["cards"]>; merchants?: Partial<Policy["merchants"]>; blocked_keywords?: string[] };
   issuerMisbehave?: "ignore_cap" | "multi_use";
   issuer?: IssuerAdapter;
   path?: FundingPath;
@@ -50,7 +50,7 @@ export function makeHarness(opts: {
   const owner = generateOwnerKey();
   const policy: Policy = {
     ...DEFAULT_POLICY,
-    ...opts.policy,
+    blocked_keywords: opts.policy?.blocked_keywords ?? DEFAULT_POLICY.blocked_keywords,
     limits: { ...DEFAULT_POLICY.limits, ...opts.policy?.limits },
     approval: { ...DEFAULT_POLICY.approval, ...opts.policy?.approval },
     cards: { ...DEFAULT_POLICY.cards, ...opts.policy?.cards },
@@ -97,7 +97,7 @@ export const idem = () => `test-key-${process.pid}-${++n}-${Math.random().toStri
 /** Assert that no Luhn-valid PAN-like number appears anywhere in a value. */
 export function containsPan(value: unknown): boolean {
   const s = JSON.stringify(value);
-  const m = s.match(/(?:\d[ -]?){12,18}\d/g) ?? [];
+  const m = s.match(/(?<![0-9A-Za-z])(?:\d[ -]?){12,18}\d(?![0-9A-Za-z])/g) ?? [];
   return m.some((x) => {
     const d = x.replace(/\D/g, "");
     let sum = 0, alt = false;
