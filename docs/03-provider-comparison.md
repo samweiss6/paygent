@@ -49,7 +49,7 @@ For a US consumer running Paygent on their own machine, with no business entity.
 | Status notes | Coinbase-hosted guest checkout "will be deprecated on June 30, 2026", replaced by the Headless Onramp API (US only) | Public preview | n/a |
 | Session security | Single-use session tokens from your backend, 5-minute expiry | Onramp sessions created server-side | Signed widget URLs *(secondary source)* |
 | Delivers USDC on Base | Yes ("Base" listed; "all crypto assets and networks available on Coinbase") | Not confirmed on the page read | Not checked |
-| In this repo | Planned adapter (`coinbase-onramp`), not shipped | None | None |
+| In this repo | Not shipped: the Onramp sandbox needs a **production** CDP API key ("Use your production CDP API key for the Headless Onramp API"; sandbox orders use a `sandbox-` `partnerUserRef` prefix), which conflicts with the no-live-credentials rule | Not shipped: application required even for sandbox | Not shipped |
 
 Practical note: a self-hoster doesn't need any on-ramp integration to use path (a). They can buy USDC in their own Coinbase account and withdraw it to their own wallet. Paygent's on-ramp adapter only makes that a one-command top-up.
 
@@ -112,11 +112,11 @@ Even with direct fiat as the default, the wallet paths stay in the design becaus
 ## 8. Could not verify
 
 - Privacy.com: whether written permission for third-party agent use is available; sandbox URL; API key scoping; bank/debit funding fees.
-- Lithic: whether individuals without an entity are accepted in sandbox; exact auth header (adapter uses `Authorization: <api-key>`).
+- Lithic: whether individuals without an entity are accepted in sandbox. (Auth header verified: raw key in `Authorization`; `Idempotency-Key` UUID supported on `POST /v1/cards`.)
 - Coinbase CDP terms on AI-agent use (clause-level review not done); entity requirements for Onramp full access; whether guest checkout deprecation took effect on 2026-06-30.
 - On-ramp end-user fees (Coinbase's help-page estimate and aggregator figures disagree).
 - Laso: issuing bank, network, state restrictions, compliance basis for orders without identity checks.
-- Base Sepolia USDC address `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (Circle's published testnet address as I recall it; confirm before testnet use).
+- Verified on-chain 2026-11-17: SpendPermissionManager has code on Base Sepolia, and `0x036CbD53842c5426634e7929541eC2318f3dCF7e` is `USDC` with 6 decimals; Paygent's ABI decodes against the deployed contract (`PAYGENT_NETWORK_TESTS=1 npm test`). Not verified: a full approve → spend → revoke cycle, which needs a Coinbase Smart Wallet and testnet funds.
 
 ## Sources
 
@@ -126,7 +126,8 @@ Primary (provider docs and terms):
 - Lithic sign-up: https://docs.lithic.com/docs/sign-up
 - Stripe Issuing use cases: https://support.stripe.com/questions/supported-business-use-cases-for-stripe-issuing; onboarding: https://docs.stripe.com/issuing/onboarding-overview
 - Stripe crypto onramp: https://docs.stripe.com/crypto/onramp
-- Coinbase Onramp: https://docs.cdp.coinbase.com/onramp/docs/welcome; Coinbase-hosted Onramp: https://docs.cdp.coinbase.com/onramp/coinbase-hosted-onramp/overview; session tokens: https://docs.cdp.coinbase.com/api-reference/rest-api/onramp-offramp/create-session-token; consumer fees: https://help.coinbase.com/en-gb/wallet/managing-account/buy-crypto
+- Lithic API basics: https://docs.lithic.com/docs/api-basics; idempotency: https://docs.lithic.com/docs/idempotent-requests
+- Coinbase Onramp sandbox: https://docs.cdp.coinbase.com/onramp-&-offramp/integration/sandbox-testing; Onramp: https://docs.cdp.coinbase.com/onramp/docs/welcome; Coinbase-hosted Onramp: https://docs.cdp.coinbase.com/onramp/coinbase-hosted-onramp/overview; session tokens: https://docs.cdp.coinbase.com/api-reference/rest-api/onramp-offramp/create-session-token; consumer fees: https://help.coinbase.com/en-gb/wallet/managing-account/buy-crypto
 - MoonPay partner onboarding: https://support.moonpay.com/en/articles/694185-partner-onboarding-overview-from-signup-to-going-live; launch guide: https://dev.moonpay.com/v1.0/docs/production-build
 - Coinbase Spend Permissions: https://docs.cdp.coinbase.com/wallets/using-wallets/spend-permissions; contract: https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol
 - Laso Finance: https://docs.laso.finance/guides/usa-prepaid-card

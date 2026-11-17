@@ -60,7 +60,7 @@ export default function create(ctx) {
 }
 ```
 
-Use `ctx.http`, not global `fetch` or `node:https`. Third-party adapters run in a separate Node process with the permission model on: you can read only your own directory, you can't write files, start processes, or read environment variables. Node doesn't sandbox raw network access, so owners are told to review adapters, and calls outside `ctx.http` are treated as a red flag in review.
+Use `ctx.http`. In the sandbox it's the only option: third-party adapters run in a separate Node process with the permission model on, so you can read only your own directory, and you can't write files, start processes, or read environment variables. Global `fetch` and `WebSocket` are removed, and importing `node:net`, `node:http(s)`, `node:tls`, `node:dns`, `node:vm`, `node:worker_threads` and similar modules throws `ERR_PAYGENT_BLOCKED_MODULE`.
 
 ## Issuer contract
 

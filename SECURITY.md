@@ -48,4 +48,5 @@ The control socket (`~/.paygent/control.sock`) is never exposed to the network.
 - Runtime dependencies are pinned to exact versions, and the lockfile is committed. Install with `npm ci --ignore-scripts`.
 - We don't take dependency updates in the first two weeks after a release.
 - Releases will be signed: npm provenance for packages, Sigstore/cosign for container images, and signed git tags. **v0.1 is not yet signed.** Verify the commit hash against this repository.
-- Third-party adapters are untrusted code and run in a sandboxed child process. Review an adapter before installing it: the sandbox doesn't restrict raw network access.
+- Third-party adapters are untrusted code. They run in a child process under Node's permission model, with networking built-ins blocked so that the provided `ctx.http` client is the only way out. That lock lives inside Node.js, not the operating system, so review an adapter before installing it.
+- CI runs on GitHub Actions pinned by commit SHA, and Dependabot proposes updates only after a 14-day cooldown.

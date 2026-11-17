@@ -39,7 +39,8 @@ The agent itself (or whoever controls it) is trying to spend more than allowed, 
 | Edit its own policy | No MCP tool writes policy; policy file is signed with the owner key and the daemon freezes on a bad signature | [MVP] |
 | Approve its own request | Approvals need the owner key (passphrase) or a hardware signature; the MCP token can't approve; approval endpoints aren't on the MCP server | [MVP] owner key; [MVP] EIP-712 signature check above threshold |
 | Get the PAN | No MCP tool returns it by default; `checkout_fill` types it into the browser; card is single-use, merchant-locked, capped, ≤24 h | [MVP] |
-| Use `checkout_fill` to type the PAN into its own page | Injector checks the page's origin against the card's merchant (registrable domain) before typing; refuses otherwise | [MVP] |
+| Use `checkout_fill` to type the PAN into its own page | Injector checks the page's origin against the card's merchant (registrable domain) before typing, and again inside the page; refuses otherwise | [MVP] |
+| Use `frame_host` to type the PAN into an attacker page that embeds a real Stripe iframe, or into an attacker-controlled frame | Frame host must be on the signed policy's `payment_frame_hosts`; the frame's CDP `parentId` must be a merchant page; the frame re-checks its own hostname | [MVP] |
 | Replay a request | Idempotency key; the same key with different parameters is rejected | [MVP] |
 | Claim a fake merchant name to dodge the deny list | Merchant is normalized to a registrable domain; card is locked to the first merchant that charges it (issuer-side), and settlement merchant is compared to the requested one, with mismatch → card frozen and alert | [MVP] normalization; [later] settlement comparison for each issuer |
 | Flood requests to cause approval fatigue | Velocity limit (counts pending requests too); pending requests count against caps until they expire | [MVP] |
@@ -61,7 +62,7 @@ A third-party adapter (or a compromised update of one) trying to steal keys, fun
 | Attack | Control | Status |
 |---|---|---|
 | Read the keystore or other adapters' keys | Third-party adapters run in a separate process under Node's permission model with fs reads limited to their own directory; they get only their own API key | [MVP] |
-| Exfiltrate over the network | Hosts declared in manifest and approved by the owner; built-in adapters use the allowlisted `http` client. **Gap:** Node's permission model doesn't block raw network access, so a child-process adapter can open arbitrary sockets. Mitigation: run third-party adapters only from reviewed sources; Docker network egress allowlist [later] | partial |
+| Exfiltrate over the network | Hosts declared in manifest and approved by the owner. The sandbox runner removes network globals, blocks networking and code-loading built-ins (resolve hook + `process.getBuiltinModule`), and disables `process.binding`, so `ctx.http` (https, manifest hosts, no redirects) is the only network path. Tested against a malicious adapter. Residual: this is an in-process lock, not an OS sandbox; a Node.js bug that exposes another route would bypass it. Container egress allowlisting is the next layer [later] | [MVP] |
 | Return a card without single-use/lock/cap | Core verifies the returned card's controls; mismatch → freeze and fail | [MVP] |
 | Report a different amount or merchant | Core uses its own values for cap; settlement data is cross-checked | [MVP] cap; [later] settlement |
 | Steal the PAN it just issued | Unavoidable: the issuer adapter sees the cards it creates. The adapter is the owner's own issuer integration; the card's tight controls limit the damage. Adapters can't read other cards' PANs | accepted, documented |
@@ -116,7 +117,7 @@ The key leaks from the host, from a backup, or is misused by a compromised insta
 1. Wallet paths: a compromised host can spend up to the on-chain allowance per period until revocation. **`fiat_direct`: a compromised host (or a leaked issuer key) can create cards up to whatever the issuer account allows.** There is no on-chain backstop on this path, so set account-level limits at the issuer.
 2. The issuer (and its adapter) sees every card it issues.
 3. A browser-driving agent could, after `checkout_fill`, read the filled field values from the DOM. Mitigation: card is single-use and merchant-locked; for stronger isolation the owner reveal path keeps the PAN out of the agent's browser entirely. This is a real gap; the long-term fix is network-tokenized agent credentials (Visa Intelligent Commerce / Mastercard Agent Pay) where the merchant never needs a raw PAN.
-4. Node's permission model doesn't sandbox network access for adapters.
+4. The adapter network lock is enforced inside the Node.js process (module hooks and removed globals), not by the operating system.
 
 ## Part B: Spend-policy specification
 

@@ -61,7 +61,7 @@ docker compose up -d
 docker compose exec paygent paygent pending
 ```
 
-The container runs as a non-root user with a read-only filesystem and no Linux capabilities, and publishes port 7402 on `127.0.0.1` only. (The Docker files are included but weren't built in this release's test run; the Node.js path is the tested one.)
+The container runs as a non-root user with a read-only filesystem and no Linux capabilities, and publishes port 7402 on `127.0.0.1` only. (The Docker image hasn't been built in testing yet; the Node.js path is the tested one.)
 
 ## Agent tools
 
@@ -71,7 +71,7 @@ The container runs as a non-root user with a read-only filesystem and no Linux c
 | `list_policies` | Read-only view of your policy |
 | `request_payment` | Ask to pay a merchant. Returns `issued`, `pending_approval`, or `denied` |
 | `get_payment_status` | Status, card last 4 digits, cap, expiry |
-| `checkout_fill` | Paygent fills the card form in the agent's Chromium browser over the DevTools Protocol, only on the merchant's own https page |
+| `checkout_fill` | Paygent fills the card form in the agent's Chromium browser over the DevTools Protocol, only on the merchant's own https page or inside an allowed payment iframe (Stripe, Braintree, Shopify) on that page |
 | `cancel_payment` | Cancel and freeze the card |
 
 There is no tool to change policy, approve payments, top up, or read card numbers. `reveal_card_to_agent` exists only if you turn on `cards.allow_reveal_to_agent`, which we don't recommend.
@@ -111,7 +111,7 @@ paygent audit verify | head | tail
 - Your policy is signed with your owner key. If the file is edited, Paygent stops approving payments.
 - The MCP server listens on `127.0.0.1` only and requires a bearer token. Remote exposure is off and needs explicit TLS setup; see [SECURITY.md](SECURITY.md).
 - Every request, decision, and payment goes in a hash-chained audit log (`paygent audit verify`).
-- Third-party adapters run in a separate process that can't read your keys or files.
+- Third-party adapters run in a separate process that can't read your keys or files, and can reach only the hosts they declared.
 
 Full details: [docs/01-architecture.md](docs/01-architecture.md) and [docs/02-threat-model-and-policy.md](docs/02-threat-model-and-policy.md).
 
@@ -121,6 +121,7 @@ Full details: [docs/01-architecture.md](docs/01-architecture.md) and [docs/02-th
 npm ci --ignore-scripts
 npm test          # node:test; no network, no accounts
 npm run typecheck
+PAYGENT_NETWORK_TESTS=1 npm test   # also reads the real contract on Base Sepolia (no keys, read-only)
 ```
 
 Writing an adapter for another issuer or on-ramp: [docs/adapter-authoring.md](docs/adapter-authoring.md). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
