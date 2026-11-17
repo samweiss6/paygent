@@ -40,6 +40,14 @@ test("malicious adapter can't read secrets, write files, spawn processes, see en
     assert.notEqual(attempts.spawn, "ALLOWED");
     assert.equal(attempts.env, "NO_ENV");
     assert.equal(attempts.fetchEvil, "blocked");
+    assert.equal(attempts.globalFetch, "absent");
+    assert.equal(attempts.globalWebSocket, "absent");
+    for (const m of ["node:net", "node:https", "node:http", "node:tls", "node:dgram", "node:dns", "node:vm", "node:worker_threads"]) {
+      assert.notEqual(attempts[m], "ALLOWED", m);
+    }
+    assert.equal(attempts.binding, "blocked");
+    assert.equal(attempts.getBuiltin, "ERR_PAYGENT_BLOCKED_MODULE");
+    assert.notEqual(attempts.requireNet, "ALLOWED");
     assert.ok(!existsSync(secret + ".pwned"));
   } finally {
     a.close();
@@ -71,7 +79,10 @@ test("lithic sandbox adapter maps the API and never reaches production", async (
     return new Response(JSON.stringify({ token: "c0ffee00-0000-0000-0000-000000000001", state: "CLOSED", type: "SINGLE_USE", spend_limit: 525, spend_limit_duration: "TRANSACTION", last_four: "1111" }));
   }) as typeof fetch;
   const issuer = createLithicSandbox(buildContext(lithicSandboxManifest, { config: {}, apiKey: "sandbox-key", fetchImpl, logSink: () => {} }));
-  const card = await issuer.createCard({ amountCents: 525, merchant: "bookshop.org", expiresAt: new Date(Date.now() + 3600e3).toISOString(), idempotencyKey: "i", memo: "paygent test" });
+  const card = await issuer.createCard({ amountCents: 525, merchant: "bookshop.org", expiresAt: new Date(Date.now() + 3600e3).toISOString(), idempotencyKey: "pay_0b6f2a8e-1c2d-4e5f-8a9b-0c1d2e3f4a5b", memo: "paygent test" });
+  const h = calls[0].init?.headers as Record<string, string>;
+  assert.equal(h.Authorization, "sandbox-key", "raw key, no prefix");
+  assert.equal(h["Idempotency-Key"], "0b6f2a8e-1c2d-4e5f-8a9b-0c1d2e3f4a5b");
   assert.equal(card.controls.capCents, 525);
   assert.equal(card.controls.singleUse, true);
   const body = JSON.parse(String(calls[0].init?.body));

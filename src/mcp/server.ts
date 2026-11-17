@@ -101,10 +101,11 @@ export function createMcpServer(deps: McpDeps): McpServer {
 
   server.registerTool("checkout_fill", {
     title: "Fill card at checkout",
-    description: "Paygent types the card into the merchant's checkout form in your Chromium browser over the DevTools Protocol. The page's top-level origin must belong to the payment's merchant. You give CSS selectors for the fields; you never see the card values.",
+    description: "Paygent types the card into the merchant's checkout form in your Chromium browser over the DevTools Protocol. The page's top-level origin must belong to the payment's merchant. If the fields are inside a payment processor iframe, pass frame_host. You give CSS selectors for the fields; you never see the card values.",
     inputSchema: z.strictObject({
       payment_id: z.string().regex(/^pay_[0-9a-f-]{36}$/),
       cdp_endpoint: z.string().max(64).describe("Loopback DevTools endpoint, e.g. http://127.0.0.1:9222"),
+      frame_host: z.string().max(253).optional().describe("If the card fields are inside a payment processor iframe (e.g. js.stripe.com), its host. Must be on the owner's allowed list."),
       selectors: z.strictObject({
         number: z.string().max(200), cvv: z.string().max(200),
         exp: z.string().max(200).optional(), exp_month: z.string().max(200).optional(), exp_year: z.string().max(200).optional(),
@@ -115,6 +116,7 @@ export function createMcpServer(deps: McpDeps): McpServer {
     const r = await service.withCard(args.payment_id, (card, row) => fillCheckout({
       cdpEndpoint: args.cdp_endpoint, merchant: row.merchant, merchantRegistrable: registrableDomain(row.merchant),
       selectors: args.selectors, card, fetchImpl: deps.fetchImpl, WebSocketImpl: deps.WebSocketImpl,
+      frameHost: args.frame_host, allowedFrameHosts: policy.policy?.cards.payment_frame_hosts ?? [],
     }));
     audit.append("checkout_filled", { payment_id: args.payment_id, fields: r.filled, page_host: r.page_host });
     return { payment_id: args.payment_id, ...r, next_step: r.missing.length ? "Some fields were not found; check the selectors." : "Submit the checkout form, then poll get_payment_status." };

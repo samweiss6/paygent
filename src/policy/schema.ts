@@ -30,6 +30,9 @@ export const PolicySchema = z.strictObject({
     amount_tolerance_percent: z.number().min(0).max(25),
     amount_tolerance_max_usd: usd,
     allow_reveal_to_agent: z.boolean(),
+    /** Payment-processor iframe hosts checkout_fill may type into, when their parent page is the merchant. */
+    payment_frame_hosts: z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).max(20)
+      .default(["js.stripe.com", "assets.braintreegateway.com", "checkout.pci.shopifyinc.com"]),
   }),
   remote: z.strictObject({ enabled: z.boolean() }),
 });
@@ -71,6 +74,7 @@ export const DEFAULT_POLICY: Policy = {
     amount_tolerance_percent: 5,
     amount_tolerance_max_usd: "2.00",
     allow_reveal_to_agent: false,
+    payment_frame_hosts: ["js.stripe.com", "assets.braintreegateway.com", "checkout.pci.shopifyinc.com"],
   },
   remote: { enabled: false },
 };
@@ -114,6 +118,7 @@ export function stricterOf(a: Policy, b: Policy): Policy {
       amount_tolerance_percent: Math.min(a.cards.amount_tolerance_percent, b.cards.amount_tolerance_percent),
       amount_tolerance_max_usd: minUsd(a.cards.amount_tolerance_max_usd, b.cards.amount_tolerance_max_usd),
       allow_reveal_to_agent: a.cards.allow_reveal_to_agent && b.cards.allow_reveal_to_agent,
+      payment_frame_hosts: a.cards.payment_frame_hosts.filter((h) => b.cards.payment_frame_hosts.includes(h)),
     },
     remote: { enabled: a.remote.enabled && b.remote.enabled },
   };

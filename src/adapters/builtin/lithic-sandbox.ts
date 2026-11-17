@@ -1,7 +1,8 @@
 // Lithic sandbox issuer adapter. Sandbox only: the host allowlist contains sandbox.lithic.com and
 // nothing else, so this adapter cannot reach production even with a live key.
-// API reference: https://docs.lithic.com (cards, simulate). Auth header format follows Lithic's
-// documented `Authorization: <api key>`; confirm against current docs (see provider comparison §7).
+// API reference: https://docs.lithic.com. Verified 2026-11-17 against docs.lithic.com/docs/api-basics
+// ("Send the API key as the raw value of the Authorization header") and
+// docs.lithic.com/docs/idempotent-requests (Idempotency-Key, UUID, supported on POST /v1/cards).
 
 import type { AdapterContext, IssuerManifest, CardStatus, IssuerAdapter } from "../types.ts";
 
@@ -25,14 +26,23 @@ interface LithicCard {
   type: string; spend_limit: number; spend_limit_duration: string;
 }
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/** Lithic requires a UUID idempotency key; Paygent's payment ids are "pay_<uuid>". */
+function toUuid(key: string): string | undefined {
+  return key.match(UUID_RE)?.[0];
+}
+
 export function createLithicSandbox(ctx: AdapterContext): IssuerAdapter {
   if (!ctx.apiKey) throw new Error("lithic-sandbox: missing API key (paygent secrets set lithic-sandbox.api_key)");
   const key = ctx.apiKey;
 
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async function call<T>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
+    const headers: Record<string, string> = { Authorization: key, "Content-Type": "application/json", Accept: "application/json" };
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
     const res = await ctx.http(`${BASE}${path}`, {
       method,
-      headers: { Authorization: key, "Content-Type": "application/json", Accept: "application/json" },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
@@ -52,7 +62,7 @@ export function createLithicSandbox(ctx: AdapterContext): IssuerAdapter {
         spend_limit_duration: "TRANSACTION",
         memo: req.memo.slice(0, 60),
         state: "OPEN",
-      });
+      }, toUuid(req.idempotencyKey));
       if (!card.pan || !card.cvv || !card.exp_month || !card.exp_year) {
         throw new Error("lithic: card response missing PAN fields");
       }
