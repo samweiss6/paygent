@@ -5,6 +5,7 @@ import http from "node:http";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { paths as getPaths, ensureDir, writeConfig, readConfig, isLoopback, type Config } from "./config.ts";
 import { Keystore } from "./crypto/keystore.ts";
@@ -169,7 +170,7 @@ async function setup(args: string[]) {
   }
   out(`\nStart the daemon:   paygent start
 Add to your agent (stdio, e.g. Claude Code / Claude Desktop / Cursor):
-${JSON.stringify({ mcpServers: { paygent: { command: "npx", args: ["paygent", "mcp"], env: { PAYGENT_HOME: P.dir } } } }, null, 2)}
+${JSON.stringify({ mcpServers: { paygent: { command: process.execPath, args: [fileURLToPath(new URL("../bin/paygent.js", import.meta.url)), "mcp"], env: { PAYGENT_HOME: P.dir } } } }, null, 2)}
 Or over HTTP: http://127.0.0.1:${config.mcp.port}/mcp with header "Authorization: Bearer <contents of ${P.mcpToken}>"`);
 }
 

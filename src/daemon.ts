@@ -123,10 +123,14 @@ export async function startDaemon(daemonPassphrase: string) {
   }
   const hostHeaderNames = isLoopback(host) ? [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`] : [`${host}:${port}`];
   const handler = mcpHandler(rt, token, hostHeaderNames);
+  // Inside a container, loopback is the container's own; listen on all container interfaces and
+  // rely on docker-compose publishing the port to the HOST's loopback only. Host-header and bearer
+  // checks still apply. Never set this outside a container.
+  const listenHost = process.env.PAYGENT_CONTAINER === "1" && isLoopback(host) ? "0.0.0.0" : host;
   const mcp = tls_cert && tls_key
     ? https.createServer({ cert: readFileSync(tls_cert), key: readFileSync(tls_key) }, handler)
     : http.createServer(handler);
-  await new Promise<void>((r) => mcp.listen(port, host, r));
+  await new Promise<void>((r) => mcp.listen(port, listenHost, r));
 
   if (existsSync(p.socket)) unlinkSync(p.socket);
   const control = http.createServer(controlHandler(rt));

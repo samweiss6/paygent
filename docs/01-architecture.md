@@ -1,10 +1,20 @@
 # Paygent architecture
 
-Status: draft v0.1 (2026-11-17). Applies to the MVP in this repository. Everything here runs in test mode: Base Sepolia testnet and provider sandboxes only.
+Status: v0.1 (2026-11-17), revised for fiat funding as a first-class path. Applies to the MVP in this repository. Everything here runs in test mode: Base Sepolia testnet, provider sandboxes, and built-in mocks only.
 
 ## 1. What Paygent is
 
-Paygent is a local daemon that an AI agent talks to over MCP. The owner keeps a non-custodial smart wallet holding USDC and grants Paygent a narrow, revocable, on-chain spending allowance. When the agent wants to buy something, it asks Paygent for a payment. Paygent checks the request against the owner's policy, pulls the exact amount through the allowance, has a card-issuing provider create a single-use, merchant-locked virtual card for that amount, and places the card at checkout without showing the card number to the agent.
+Paygent is a local daemon that an AI agent talks to over MCP. When the agent wants to buy something, it asks Paygent for a payment. Paygent checks the request against the owner's policy, funds it from the owner's chosen funding source, has a card-issuing provider create a single-use, capped virtual card for that amount, and places the card at checkout without showing the card number to the agent.
+
+The owner picks one of three funding paths. The agent-facing API is the same for all three:
+
+| Path | Money flow | Crypto involved | Limit enforced outside Paygent |
+|---|---|---|---|
+| `fiat_direct` (default) | Owner's bank account or debit card, linked inside the owner's own issuer account → card | None | Issuer's card controls and account settings only |
+| `fiat_onramp` | Owner's bank/debit → on-ramp (owner top-up, provider-hosted KYC) → owner's own smart wallet → SpendPermission → issuer USDC deposit → card | USDC, but the owner never has to buy it on an exchange themselves | On-chain daily allowance |
+| `crypto_wallet` | Owner's own smart wallet (USDC) → SpendPermission → issuer USDC deposit → card | USDC | On-chain daily allowance |
+
+Where a wallet is involved it is the owner's own non-custodial smart wallet, and Paygent holds only a revocable, expiring spending allowance on it.
 
 There is no Paygent-operated service. Each install is one process on the owner's machine (or server), using the owner's wallet and the owner's provider accounts.
 
@@ -12,7 +22,7 @@ There is no Paygent-operated service. Each install is one process on the owner's
 
 ```
                          owner (human)
-                 CLI / local approval page (owner key)
+                 paygent CLI (signs with owner key)
                                │  Unix socket 0600 / localhost + owner token
 ┌──────────────────────────────┼──────────────────────────────────────────────┐
 │ paygentd (single Node.js process, the "core")                               │
@@ -48,14 +58,16 @@ There is no Paygent-operated service. Each install is one process on the owner's
 | Component | Responsibility | Holds secrets? |
 |---|---|---|
 | MCP server | Exposes agent tools. Validates input with zod. Has no tool that changes policy, approves, reveals a PAN, or reads keys. | No |
-| Owner control plane | `paygent` CLI plus a localhost approval page. Approves pending payments, edits policy, runs the kill switch. Authenticates with the owner key, which the agent never has. | Owner signing key (encrypted, needs passphrase) |
+| Owner control plane | `paygent` CLI over the 0600 Unix socket (a localhost approval page is later work). Approves pending payments, edits policy, runs the kill switch. Authenticates with the owner key, which the agent never has. | Owner signing key (encrypted, needs passphrase) |
 | Payment service | State machine for one payment: validate → decide → reserve → fund → issue → checkout → settle. Enforces idempotency. | No (calls into the others) |
 | Policy engine | Pure function `decide(request, policy, ledgerView, now)`. No I/O, so it is easy to test and review. | No |
 | Ledger | SQLite (`node:sqlite`, no native dependency). Payments, reservations, idempotency keys, merchant history. | No |
 | Audit log | JSONL, one entry per event, each entry carrying the SHA-256 of the previous entry. `paygent audit verify` detects edits or truncation in the middle of the log. | No |
 | Keystore | Encrypted file (scrypt N=2^17, AES-256-GCM). Holds the spender private key and provider API keys. Unlocked at start with a passphrase (interactive, or a Docker secret file). | Yes |
 | Card vault | Holds issued card details, sealed in memory, plus at rest with a key derived from the keystore. Only the checkout injector and the owner reveal page can read them. | Yes (PANs) |
-| Spend authority | Talks to Coinbase's SpendPermissionManager. Calls `spend` for exact amounts and `revokeAsSpender` for the kill switch. | Uses the spender key |
+| Funding source (core) | One of `FiatDirectFunding` (moves nothing; the issuer charges the owner's linked bank/debit), `WalletFunding` (`crypto_wallet` and `fiat_onramp`: pulls through the SpendPermission and forwards to the issuer's USDC deposit address from signed config). The service refuses to start if the issuer's `fundingModels` doesn't match the path. | Wallet paths use the spender key |
+| Spend authority | Talks to Coinbase's SpendPermissionManager. Calls `spend` for exact amounts and `revokeAsSpender` for the kill switch. Wallet paths only. | Uses the spender key |
+| On-ramp adapter | `fiat_onramp` only. Creates a provider-hosted top-up session that delivers USDC to the owner's wallet. Owner-initiated (`paygent topup`), never by the agent. Never sees bank or card details. | Its own provider API key |
 | Adapter host | Gives each adapter a restricted context: its own config and API key, an HTTP client limited to declared hosts, a logger that drops secrets. No keystore, policy, ledger, or wallet access. | Passes each adapter its own key only |
 
 ## 3. Data flow: one purchase
@@ -64,15 +76,18 @@ There is no Paygent-operated service. Each install is one process on the owner's
 2. The MCP server validates the shape and passes the request to the payment service. The request carries no trust: whatever caused the agent to ask (a web page, an email) is irrelevant, because the decision depends only on policy.
 3. Idempotency: the same `idempotency_key` returns the existing payment. The same key with different parameters is rejected.
 4. The policy engine returns `approve`, `require_approval`, or `deny`, plus a list of reasons. Everything is written to the audit log.
-5. If approval is required, the payment waits as `pending_approval`. The owner approves with `paygent approve <id>` (signed with the owner key) or on the local approval page. Above `hardware_approval_threshold_usd`, the approval must be signed by a separate signer, such as a hardware wallet or the owner's root wallet, using an EIP-712 message that Paygent verifies but cannot produce.
+5. If approval is required, the payment waits as `pending_approval` (and counts against caps) until `approval_ttl_minutes` passes. The owner approves with `paygent approve <id>`, which decrypts the owner key in the CLI process and signs the payment id, merchant, and amount. Above `hardware_approval_threshold_usd`, the approval must be signed by a separate signer, such as a hardware wallet or the owner's root wallet, using an EIP-712 message that Paygent verifies but cannot produce.
 6. Reserve: the amount is counted against the daily and monthly caps before any money moves, so two concurrent requests can't both slip under a cap.
-7. Fund: the spend authority calls `SpendPermissionManager.spend(permission, amount)`. The contract enforces the per-period allowance on-chain. USDC moves from the owner's smart wallet to the spender address. The funding adapter then forwards the amount to the issuer's funding address, or pays the issuer directly for crypto-native issuers.
-8. Issue: the issuer adapter creates a card of type `single_use`, locked to the merchant, with a hard cap of `amount × (1 + tolerance)` and an expiry of at most 24 hours. Card details go straight into the card vault. The agent receives only `payment_id`, `status`, `last4`, and the cap.
+7. Fund (depends on the path):
+   - `fiat_direct`: nothing moves at this step. The issuer charges the bank account or debit card the owner linked in the issuer's own app when the merchant charges the card.
+   - `crypto_wallet` / `fiat_onramp`: the spend authority calls `SpendPermissionManager.spend(permission, cap)`. The contract enforces the per-period allowance on-chain. USDC moves from the owner's smart wallet to the spender address, then straight to the issuer's USDC deposit address taken from signed config. If forwarding fails, the spender balance is swept back to the owner.
+   - On `fiat_onramp`, the owner tops up the wallet ahead of time: `paygent topup 50` asks for the owner passphrase, creates a session with the on-ramp adapter, and prints the provider's hosted URL. The owner completes KYC and payment there, and USDC arrives in the owner's wallet.
+8. Issue: the issuer adapter creates a card of type `single_use`, locked to the first merchant that charges it, with a hard cap of `amount + min(5%, $2)` (policy-configurable) and a lifetime of at most `max_lifetime_minutes` (default 60). Card details go straight into the card vault. The agent receives only `payment_id`, `status`, `last4`, and the cap.
 9. Checkout, one of three:
-   - `checkout_fill` (default for agents with a browser): Paygent connects to the agent's browser over the Chrome DevTools Protocol, checks that the page origin matches the card's merchant, and types the card fields itself. The values never pass through MCP.
-   - Owner reveal: the owner opens a one-time localhost page from the CLI and pastes the details by hand.
+   - `checkout_fill` (default for agents with a browser): Paygent connects to the agent's browser over the Chrome DevTools Protocol, checks that the top-level page belongs to the card's merchant (before and again inside the page), and types the card fields itself. The values never pass through MCP. Fields inside cross-origin payment iframes aren't supported in v0.1.
+   - Owner reveal: `paygent reveal <id>` (owner-signed) prints the card in the owner's terminal for a manual checkout.
    - `reveal_card_to_agent`: off by default. It needs a policy flag, and even then it only works for a single-use, merchant-locked card under the cap, which is gone after one charge.
-10. Settle: the issuer webhook (or polling, in the MVP) marks the payment `settled` or `declined`. When a card expires unused, its balance stays with the owner's issuer account and the cap reservation is released.
+10. Settle: polling (every 30 s, and on `get_payment_status`) marks the payment `settled` and wipes the card from the vault. When a card expires unused it's frozen, wiped, and the cap reservation is released; on wallet paths the funded USDC stays in the owner's issuer account.
 
 ## 4. Deployment model
 
@@ -82,13 +97,22 @@ There is no Paygent-operated service. Each install is one process on the owner's
   2. asks for a passphrase and creates the keystore;
   3. generates the spender key (for the on-chain mode) and the owner signing key, both encrypted;
   4. writes a conservative default policy and signs it with the owner key;
-  5. picks the authority (`mock` for a dry run, or `base-sepolia`) and an issuer adapter (`mock`, or a provider sandbox);
+  5. asks for the funding path (`fiat_direct`, `fiat_onramp`, `crypto_wallet`), then for wallet paths the authority (`mock` for a dry run, or `base-sepolia`), and an issuer adapter (`mock`, `lithic-sandbox`, or a third-party adapter directory);
   6. for `base-sepolia`, prints the exact SpendPermission struct for the owner to approve **in their own wallet**, then checks on-chain that it is approved;
   7. prints the MCP config snippet to paste into the agent.
-- Agents connect over stdio (the agent launches `paygent mcp`, and that process hands off to the daemon through the owner-only Unix socket) or over HTTP on `127.0.0.1:7402/mcp` with a bearer token. Binding to anything other than loopback refuses to start unless `remote.enabled: true` is set in a signed policy and TLS plus token authentication are configured.
-- State lives entirely in `~/.paygent/`: `keystore.json`, `policy.json`, `policy.sig`, `ledger.db`, `audit.log`, `config.json`.
+- Agents connect over stdio (the agent launches `paygent mcp`, a small bridge that forwards JSON-RPC to the daemon over loopback HTTP using the MCP bearer token; it holds no keys) or directly over HTTP on `127.0.0.1:7402/mcp` with a bearer token. Binding to anything other than loopback refuses to start unless `remote.enabled: true` is set in a signed policy and TLS plus token authentication are configured.
+- State lives entirely in `~/.paygent/`: `keystore.json` (daemon secrets), `owner.json` (owner key, separate passphrase), `owner.pub`, `policy.json` + `policy.sig`, `config.json` + `config.sig`, `ledger.db`, `audit.log`, `mcp-token`, `control.sock`.
+- In Docker, the daemon listens on the container's interfaces (`PAYGENT_CONTAINER=1`) and compose publishes the port to the host's `127.0.0.1` only. The Host-header and bearer-token checks still apply.
 
-## 5. Non-custodial authority model
+## 5. Funding and authority model
+
+### 5.1 Choosing a path
+
+`fiat_direct` is the default because it's the shortest path for a US consumer: one provider account, one identity check, no wallet, no gas, and the strongest per-card controls (see `docs/03-provider-comparison.md` §2). Its weakness is that no limit sits outside the host and the issuer: whoever holds the issuer API key can create cards up to the provider's account limits. Paygent's policy, the single-use capped cards, and the kill switch still apply, and `paygent doctor` reminds owners to set account-level limits in the issuer's app.
+
+The wallet paths add an independent, on-chain daily cap and revocation from another device. `fiat_onramp` gets those properties without the owner having to buy crypto on an exchange themselves.
+
+### 5.2 Wallet paths: the non-custodial authority
 
 The options I considered:
 
@@ -112,25 +136,45 @@ Chosen design:
 
 ## 6. Provider adapter interface
 
-Two adapter kinds, both deliberately small (full contract in `docs/adapter-authoring.md`, code in `src/adapters/types.ts`):
+Funding is split in two on purpose. **Funding sources** live in the core, because the wallet paths need the spender key and adapters never get keys. **Adapters** are untrusted provider integrations, of two kinds (full contract in `docs/adapter-authoring.md`, code in `src/adapters/types.ts` and `src/funding/types.ts`):
 
 ```ts
+// Core-side (not an adapter; may hold the spender key)
+interface FundingSource {
+  path: "crypto_wallet" | "fiat_onramp" | "fiat_direct";
+  feeds: "usdc_deposit" | "fiat_linked";
+  balance(): Promise<FundingBalance>;
+  precheck(amountCents: number): Promise<void>;
+  fund(paymentId: string, amountCents: number, issuerId: string): Promise<{ refs: string[] }>;
+  revoke(): Promise<string[]>;   // kill switch
+  sweep(): Promise<string[]>;
+}
+
+// Adapter: card issuer
 interface IssuerAdapter {
-  id: string; kind: "issuer"; displayName: string;
-  capabilities: { singleUse: boolean; merchantLock: boolean; perCardCap: boolean;
-                  expiry: boolean; freeze: boolean; fundingCurrency: "USD" | "USDC" };
-  createCard(req: { amountCents: number; merchant: string; expiresAt: string;
-                    idempotencyKey: string; memo: string }): Promise<IssuedCard>;
+  manifest: { id; kind: "issuer"; fundingModels: ("usdc_deposit" | "fiat_linked")[];
+              capabilities: { singleUse; merchantLock; perCardCap; expiry; freeze };
+              allowedHosts: string[]; testModeOnly: true };
+  createCard(req: { amountCents; merchant; expiresAt; idempotencyKey; memo }): Promise<IssuedCard>;
   freezeCard(providerCardId: string): Promise<void>;
   getCardStatus(providerCardId: string): Promise<CardStatus>;
-  listOpenCards(): Promise<string[]>;
 }
-interface FundingAdapter {
-  id: string; kind: "funding";
-  fund(req: { amountUsdcUnits: bigint; issuerId: string; idempotencyKey: string })
-    : Promise<{ reference: string }>;
+
+// Adapter: fiat on-ramp (fiat_onramp path)
+interface OnrampAdapter {
+  manifest: { id; kind: "onramp"; delivers: string[]; allowedHosts: string[]; testModeOnly: true };
+  createTopUp(req: { amountCents; destinationAddress; asset; idempotencyKey }): Promise<TopUpSession>;
+  getTopUpStatus(providerSessionId: string): Promise<{ state; deliveredUnits; txHash }>;
 }
 ```
+
+| Path | Funding source | Issuer `fundingModels` must include | Adapters used |
+|---|---|---|---|
+| `fiat_direct` | `FiatDirectFunding` | `fiat_linked` | issuer |
+| `fiat_onramp` | `WalletFunding` + `OnrampTopUps` | `usdc_deposit` | issuer + onramp |
+| `crypto_wallet` | `WalletFunding` | `usdc_deposit` | issuer |
+
+The on-ramp's `destinationAddress` always comes from signed config (`funding.owner_wallet`), never from the agent or the adapter.
 
 The adapter gets an `AdapterContext`: `{ config, apiKey, http (host-allowlisted fetch), log (redacting), testMode: true }`. It never gets the keystore, the policy, the ledger, the audit log, or the wallet. The core checks what each adapter returns: if `createCard` returns a card without the requested lock or cap, the core freezes it and fails the payment, because a claim in the capabilities isn't enough.
 
@@ -151,6 +195,10 @@ Third-party adapters (anything outside `src/adapters/builtin/`) run in a child p
 | D9 | Apache-2.0 licence | Permissive, with an explicit patent grant and a NOTICE mechanism suited to a payments project that companies may embed; compatible with MIT/BSD dependencies | Not copyleft: forks need not publish changes |
 | D10 | `mock` authority and `mock` issuer ship in the core | A new user can run the full flow, and tests can run, with no accounts | Must be impossible to mistake for real money: banner in every response, `test_mode: true` field |
 | D11 | Live mode is not implemented in v0.1 | The brief says test mode only; provider terms are unresolved (see `docs/03-provider-comparison.md`) | Users can't actually buy anything with v0.1 |
+| D12 | Three funding paths behind one agent API; `fiat_direct` is the default | Most US consumers don't own crypto; direct fiat has the fewest steps and fees | `fiat_direct` has no cap outside the host and issuer; wallet paths remain for owners who want that |
+| D13 | Funding sources are core code, on-ramps and issuers are adapters | The spender key must never reach adapter code | Adding a new wallet type means a core change, reviewed like one |
+| D14 | Top-ups are owner actions, signed with the owner key | An agent that could trigger top-ups could pull money from the owner's bank account | Owner must top up ahead of time on `fiat_onramp` |
+| D15 | Install config (funding destinations, issuer choice) is signed with the owner key | Prevents a local process from redirecting wallet funds by editing `config.json` | Config changes need the owner passphrase |
 
 ## 8. MCP surface (agent-facing)
 
@@ -163,8 +211,8 @@ Third-party adapters (anything outside `src/adapters/builtin/`) run in a child p
 | `checkout_fill` | Fill the card form in the agent's browser over CDP for an issued payment | Types card details into a page whose origin matches the merchant |
 | `cancel_payment` | Cancel a pending or unused payment and freeze its card | Freezes a card |
 
-The MCP spec in use is the 2026-07-28 revision through `@modelcontextprotocol/sdk` 1.32.x. Tools carry `annotations` (`readOnlyHint`, `destructiveHint`) so clients can prompt for confirmation, but Paygent never depends on the client to do so.
+The pinned `@modelcontextprotocol/sdk` 1.32.2 negotiates MCP protocol revisions up to 2025-11-25. The current spec revision (2026-07-28) changes mainly the stateless core and remote authorization, neither of which v0.1's stdio and loopback transports depend on. Upgrading the SDK is tracked as later work. Tools carry `annotations` (`readOnlyHint`, `destructiveHint`) so clients can prompt for confirmation, but Paygent never depends on the client to do so.
 
 ## 9. Out of scope for v0.1
 
-Live funds; recurring subscriptions; refunds back to the wallet; multi-user installs; remote MCP with OAuth (the 2026-07-28 spec's authorization flow); OS keychain integration; signed release pipeline (documented, not wired up).
+Live funds; real on-ramp adapters (Coinbase Onramp is planned; v0.1 ships `mock-onramp`); a USDC-accepting issuer adapter; recurring subscriptions; refunds back to the wallet; multi-user installs; remote MCP with OAuth (the 2026-07-28 spec's authorization flow); OS keychain integration; signed release pipeline (documented, not wired up).

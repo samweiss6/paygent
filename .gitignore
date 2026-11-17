@@ -1,10 +1,11 @@
-node_modules/
+.DS_Store
+.env
+.env.*
 .paygent/
 *.db
 *.db-*
 audit.log
-keystore.json
-.env
-.env.*
 coverage/
-.DS_Store
+keystore.json
+node_modules/
+secrets/

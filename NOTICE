@@ -1,0 +1,13 @@
+Paygent
+Copyright 2026 The Paygent authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Paygent is self-hosted software. It is not a bank, money transmitter, or financial
+service, and its authors do not hold, move, or have access to users' funds. Version 0.1
+operates in test mode only. Users are responsible for complying with the terms of any
+payment, card-issuing, or on-ramp provider they connect, and with applicable law.
+
+Product and company names (including Coinbase, Lithic, Privacy.com, Stripe, Visa,
+Mastercard) are trademarks of their respective owners and are used only to describe
+compatibility. No endorsement is implied.

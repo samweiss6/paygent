@@ -1,95 +1,141 @@
 # Provider comparison and MVP recommendation
 
-Researched 2026-11-17. Not legal advice. Where a fact comes from a vendor's own marketing or a third-party blog rather than primary docs or terms, it's marked *(unverified)*. Re-check everything here before any live use.
+Researched 2026-11-17, revised the same day for the fiat-funding scope change. Not legal advice. Facts quoted from a provider's own docs or terms are cited. Anything from a third-party blog, an aggregator, or vendor marketing is marked *(unverified)*. Re-check everything here before any live use.
 
 ## 1. Summary
 
-- **There is no provider today that cleanly fits "US consumer, crypto-funded, AI agent buys things, self-serve API, terms that allow it."** Each candidate fails at least one of those.
-- **Privacy.com's terms conflict with this use.** Its General Terms prohibit using the service "in conjunction with automated purchasing software programs", say "Virtual Cards are not issued to you and are not for consumer use", and limit Payment Services to "business purposes". Privacy.com also ships an official MCP server for AI agents, so its terms and its product point in opposite directions. Until Privacy.com confirms in writing that agent use through a third-party MCP server is allowed, Paygent should not offer a live Privacy.com adapter.
-- **Stripe Issuing and Lithic are business programs.** Stripe requires business-purpose spend funded by a business (sole proprietors allowed). Lithic's live mode requires contacting sales and setting up a program. Both have self-serve sandboxes, which makes them useful for building and testing, but they aren't paths for consumers.
-- **Laso Finance is the closest crypto-native fit** (USDC on Base → US prepaid card, over x402, built for agents), but it returns raw card details to the caller, publishes no sandbox, and its order endpoints don't check identity. Paygent can contain the first problem, but the last two are open questions for the owner and counsel.
-- **Recommendation for the MVP:** ship the core against the built-in `mock` issuer and a **Lithic sandbox** adapter (self-serve sandbox, granular per-card controls, an API designed for programmatic issuing), with **Laso** planned but not shipped in v0.1. Authority: **Coinbase Spend Permissions on Base Sepolia**. No live mode in v0.1.
+- **Paygent supports three funding paths behind one agent API:** (a) fiat on-ramp → the owner's own wallet → card, (b) direct fiat → card with no crypto, and (c) a crypto wallet the owner already has. The agent's tools are identical on all three; only `get_balance` reports which path is active.
+- **Recommendation for the MVP: path (b), direct fiat.** For a US consumer self-hoster it has fewer accounts, fewer KYC steps, lower and more predictable fees, and the best per-card controls, and it needs no crypto knowledge. The MVP runs it against the `mock` issuer and the **Lithic sandbox**.
+- **The only consumer-facing direct-fiat provider I found, Privacy.com, has terms that as written forbid this use.** Its General Terms (last updated 2023-09-06) prohibit using the service "in conjunction with automated purchasing software programs". Its Payment Terms say "Virtual Cards are not issued to you and are not for consumer use" and that Payment Services "may only be used for business purposes". Privacy.com also markets agent use at agents.privacy.com and runs a hosted MCP endpoint, but I found no agent-specific terms that override the restriction. **Live path (b) is blocked until Privacy.com confirms in writing that owner-configured, self-hosted agent use is allowed.**
+- **The next-best option if Privacy.com says no is not a clean one.** Lithic and Stripe Issuing are business programs, and Stripe's terms limit spend to business purposes. Path (a) needs a card issuer that accepts USDC from an individual, and the only one I found with an agent API (Laso Finance) publishes no sandbox, doesn't check identity on card orders, and doesn't lock cards to a merchant. Section 6 sets out what would have to be true.
+- **The crypto path is still needed** for the one property fiat can't provide: a spending cap enforced outside the host that a compromised install can't raise (section 5).
 
-## 2. Card issuers
+## 2. Head to head: (a) on-ramp → wallet → card vs (b) direct fiat → card
 
-| | Privacy.com (API) | Lithic | Stripe Issuing | Laso Finance | Crossmint / AgentCard / VIC-based agent cards |
-|---|---|---|---|---|---|
-| Model | Consumer-facing fintech issuing virtual cards from a linked bank | Card-issuing platform (BaaS) for companies running programs | Card issuing for platforms and businesses | Prepaid cards bought with USDC via x402 | Network-tokenized agent credentials |
-| Individual can open an account without a business entity | Yes for sign-up; but terms say Payment Services are for **business purposes** and cards "not for consumer use" | Sandbox self-serve; live requires sales and a program *(entity requirements not stated in docs)* | Sandbox instant; live requires an eligibility review, business-purpose spend funded by a business (sole proprietor OK) | Appears yes; no business entity mentioned *(unverified)* | Mostly sold to platforms *(unverified)* |
-| US availability | 50 states + DC | Program-dependent | Program-dependent | US merchants only; state list not published | Varies |
-| KYC burden on the user | Privacy CIP before transacting | Program operator does KYC on cardholders | Platform does KYC on connected accounts | Order endpoints don't check identity status (per its docs) | Varies |
-| Funding | Linked bank account (ACH) | Program funding account | Stripe balance | USDC on Base or Solana | Underlying card or stablecoin |
-| Programmatic card creation | Yes (`POST /v1/cards`), paid plan required for API | Yes | Yes | Yes (`/get-card?amount=`) | Yes |
-| Single-use | `SINGLE_USE` | Yes | Configurable via spending controls | Non-reloadable, multi-use until balance spent | Yes (scoped tokens) |
-| Merchant lock | `MERCHANT_LOCKED` (first merchant) | Yes (auth rules) | Allowed/blocked categories and merchants via spending controls | No (US merchants only) | Yes |
-| Per-card cap | `spend_limit` + duration | Yes | Yes | Card value = amount loaded ($5–$1,000) | Yes |
-| Expiry control | `exp_month`/`exp_year` | Yes | Yes | Fixed 6 months; remaining balance forfeited | Varies |
-| Freeze/close | `PAUSED`/`CLOSED` | Yes | Yes | Not documented | Varies |
-| PAN delivery | Returned in API response; MCP server has `get_pan` tool that returns PAN/CVV to the agent | API; hosted/embedded display options *(unverified)* | API with ephemeral keys / Issuing Elements | Returned to the caller (`card_number`, `cvv`) | Tokenized: the merchant may never see a PAN |
-| Fees | Paid plan required for API *(price not checked)* | Per-program *(not published)* | Per-card fees *(not checked)* | "No fee: the amount you pay is the amount on the card" (vendor claim) | Not published |
-| Terms on automated/agent use | **Prohibits "automated purchasing software programs" and "robot, spider, scraper, or other automated means"**, while shipping an agent MCP server | Not found in public docs | Business purposes only; no agent-specific clause found | Built for agents | Built for agents |
-| Sandbox | Not documented in current docs *(historically `sandbox.privacy.com`, unverified)* | Yes (`sandbox.lithic.com`) | Yes | **None published** | Varies |
+For a US consumer running Paygent on their own machine, with no business entity.
 
-## 3. On-ramps and off-ramps (USD ↔ USDC)
+| | (a) Fiat on-ramp → own wallet → card | (b) Direct fiat → card |
+|---|---|---|
+| Accounts the owner needs | On-ramp (or exchange) account + smart wallet + a card issuer that accepts USDC | One card-issuer account with a linked bank account or debit card |
+| KYC steps | 1–2: on-ramp KYC always; issuer KYC depends on issuer (Laso's order endpoints check none, see §3) | 1: issuer's identity check (Privacy: "must successfully pass the Privacy Customer Identification Program (CIP) before they can transact") |
+| Total fees, typical $20 purchase | On-ramp: Coinbase Onramp lists no developer fee; end-user fees depend on payment method (a Coinbase help page lists guest debit at ~5%, "estimates and subject to change"); ACH figures from aggregators only *(unverified)*. Plus Base gas (cents; sponsorable). Plus issuer fees (Laso claims none, *vendor claim*). Plus risk of forfeiting unused prepaid balance (Laso: "remaining balance is forfeited" at 6 months) | Privacy.com: API needs a paid plan, Plus $5/mo or Pro $10/mo (pricing page); "no fees on domestic transactions" (General Terms footnote, Personal plan); 3% foreign fee on Plus. Bank/debit funding fees not stated *(unverified)* |
+| Individual without a business entity | On-ramp: yes for consumers buying in their own Coinbase account. Integrating an on-ramp API is another matter: Stripe requires an approved onramp application "including in sandboxes"; MoonPay issues production keys after "KYB and product review"; Coinbase Onramp needs a CDP project and backend session tokens, starts in "trial mode" and needs an application for full access (entity requirement not stated) | Privacy.com: sign-up yes, but Payment Terms say business purposes only (conflict, §4). Lithic: sandbox self-serve, live "contact Sales". Stripe Issuing: "cards must be used for business purposes" |
+| Terms on self-hosted / automated / AI-agent use | Coinbase: CDP and Onramp are built for developer integrations; I did not find a clause on AI agents in the Onramp docs *(CDP terms not reviewed clause by clause: unverified)*. Laso: built for agents | **Privacy.com: forbids "automated purchasing software programs" (General Terms §4)**, while marketing agent use. Lithic/Stripe: no agent clause found |
+| Per-card controls | Depend on the USDC-accepting issuer. Laso: fixed-amount, non-reloadable, US merchants only, 6-month expiry, **no merchant lock, no freeze documented**, card details returned to the caller | Privacy: `SINGLE_USE`, `MERCHANT_LOCKED`, `spend_limit` per `TRANSACTION`/`MONTHLY`/`ANNUALLY`/`FOREVER`, `PAUSED`/`CLOSED`, settable `exp_month`/`exp_year` (Cards docs). Lithic: single-use, spend limits, pause (adapter in this repo) |
+| Spending cap a compromised host can't raise | **Yes**: on-chain SpendPermission allowance per day, revocable from another device | No: whoever holds the issuer API key can create cards up to the provider's own account limits |
+| Owner experience | Top up the wallet ahead of time (`paygent topup`), approve a spend permission in their wallet, keep a little ETH for gas (or sponsor) | Link a bank or debit card in the issuer's app; paste a sandbox API key into `paygent setup` |
+| Sandbox available to an individual now | On-ramp: Coinbase trial mode/sandbox (after CDP sign-up), MoonPay test keys, Stripe only after approval. USDC-accepting issuer: **none found** | Lithic sandbox: self-serve. Privacy sandbox: not documented in current docs *(unverified)* |
+| Verdict for MVP | Supported (mock on-ramp + Base Sepolia), not recommended as the default | **Recommended default** |
 
-The owner funds their own wallet, so Paygent doesn't integrate an on-ramp in v0.1. It documents the options, and the setup wizard links to them.
+## 3. Providers checked
 
-| | Coinbase (Onramp / exchange account) | MoonPay | Bridge (Stripe) |
+### Direct fiat card issuers (path b)
+
+| | Privacy.com | Lithic | Stripe Issuing |
 |---|---|---|---|
-| Individual US customer | Yes | Yes, "50 US states" *(aggregator claim)* | Mainly business/platform *(unverified)* |
-| Fees | ~0.5% ACH, ~2.5% card for Onramp *(aggregator)*; USDC↔USD conversion reported free on Coinbase, though sources disagree | Up to 4.5% card *(aggregator)* | Not found |
-| KYC | Standard exchange KYC | Tiered by lifetime volume: <$2k basic ID, $2k–$10k + address, >$10k + source of funds *(aggregator)* | KYB/KYC via platform |
-| Programmatic for an individual | Owner's own Coinbase account; Onramp is a widget | Widget | API for businesses |
-| Notes | Also the source of Spend Permissions; Base Sepolia faucet for USDC test funds via CDP | Broad coverage | Natural fit if a future issuer is Stripe-based |
+| Who it serves | Consumers and small businesses (pricing page: Personal, Plus, Pro, Premium "Best for Small Businesses") | Companies running card programs | Platforms and businesses |
+| API access | Paid plan required: "You must be subscribed to a paid Privacy Plan in order to access the Privacy API" (MCP docs) | Sandbox at sign-up: "Your account starts in Sandbox mode"; production: "contact Sales" | Sandbox instant; live after eligibility review |
+| Funding | `CARD_DEBIT`, `DEPOSITORY_CHECKING` (Funding Sources docs) | Program funding account | Stripe balance |
+| Terms on this use | **Forbidden as written** (§4) | No agent clause found; business program | Business purpose only: "cards must be used for business purposes" |
+| Card controls | Best in class (§2) | Single-use, spend limits, pause | Spending controls |
+| In this repo | No adapter (terms) | `lithic-sandbox` adapter, sandbox host only | None |
 
-## 4. Spend-authority standards
+### On-ramps (path a)
+
+| | Coinbase Onramp | Stripe crypto onramp | MoonPay |
+|---|---|---|---|
+| Integration access | CDP account + Secret API key; "New integrations start in trial mode"; application for full access | "To access the Stripe onramp, including in sandboxes, you must ... submit your onramp application"; reviewed "within 48 hours" | Test keys at sign-up; production keys after "KYB and product" approval |
+| End-user KYC | Coinbase account KYC, or guest checkout for US residents "up to $500/week" | Stripe does KYC; Stripe is merchant of record | Tiered by volume *(aggregator)* |
+| Status notes | Coinbase-hosted guest checkout "will be deprecated on June 30, 2026", replaced by the Headless Onramp API (US only) | Public preview | n/a |
+| Session security | Single-use session tokens from your backend, 5-minute expiry | Onramp sessions created server-side | Signed widget URLs *(secondary source)* |
+| Delivers USDC on Base | Yes ("Base" listed; "all crypto assets and networks available on Coinbase") | Not confirmed on the page read | Not checked |
+| In this repo | Planned adapter (`coinbase-onramp`), not shipped | None | None |
+
+Practical note: a self-hoster doesn't need any on-ramp integration to use path (a). They can buy USDC in their own Coinbase account and withdraw it to their own wallet. Paygent's on-ramp adapter only makes that a one-command top-up.
+
+### USDC-accepting card issuers (needed for paths a and c)
+
+| | Laso Finance | Crossmint / AgentCard / network agent tokens |
+|---|---|---|
+| Model | Prepaid US card bought with USDC on Base or Solana via x402 | Network-tokenized agent credentials (Visa Intelligent Commerce, Mastercard Agent Pay) |
+| Individual access | Appears yes *(vendor docs)* | Mostly via platforms *(unverified)* |
+| KYC | "Neither `/get-card` nor `/order-intl-card` reads an identity-verification status" | Varies |
+| Controls | Fixed amount $5–$1,000, non-reloadable, US merchants only, 6-month expiry, forfeiture | Agent- and policy-scoped tokens |
+| Card details | Returned to the caller | Merchant may never see a raw PAN |
+| Sandbox | None published | Varies |
+| In this repo | Not shipped (no sandbox; identity-check model is a counsel question) | Not shipped; long-term direction |
+
+## 4. Terms that forbid this use
+
+**Privacy.com.** Quoted from privacy.com/terms (General Terms, "Last updated: September 6, 2023"), Section 4, Restrictions:
+> "use the Service in conjunction with automated purchasing software programs"
+> "robot, spider, scraper, or other automated means"
+
+Quoted from privacy.com/card-terms (Payment Terms):
+> "Virtual Cards are not issued to you and are not for consumer use."
+> "Payment Services may only be used for business purposes in the fifty states"
+
+Paygent is automated purchasing software by any reading. Privacy.com's own agent page ("Unleash your AI agents securely with Privacy", mcp.privacy.com) suggests the company intends agent use, but the page links to no agent-specific terms, and it doesn't mention third-party or self-hosted MCP servers. Until Privacy.com confirms otherwise in writing, treat agent use as **not permitted**. That's why this repo ships no Privacy.com adapter.
+
+**Stripe Issuing.** "Cards must be used for business purposes", and spend must be funded by a business. Consumer personal spend is out of scope.
+
+**Next-best option.** If Privacy.com won't confirm:
+1. **Owners with a sole proprietorship** can use a business issuing program (Lithic or Stripe) for genuine business purchases. That's a narrower audience than "US consumers", and the program operator takes on KYC obligations.
+2. **Path (a)** becomes viable only when a USDC-accepting issuer offers a sandbox, identity checks, merchant lock, and freeze. Until then the crypto paths stay test-mode only.
+3. **Network agent tokens** (Visa Intelligent Commerce / Mastercard Agent Pay) through a consumer-facing issuer are the long-term answer, and the adapter interface is built so one can be added without changing the core.
+
+## 5. What the crypto path is still needed for
+
+Even with direct fiat as the default, the wallet paths stay in the design because they provide things fiat can't:
+1. **A cap outside the host.** The SpendPermission allowance is enforced by a contract. A fully compromised Paygent install can spend at most the daily allowance until the owner revokes it from another device. On path (b) the issuer API key is the whole spending authority, bounded only by provider account settings.
+2. **Revocation without trusting the host.** The owner can call `revoke` from their wallet on their phone.
+3. **Machine payments without cards.** x402 merchants can be paid directly from the allowance, with no card at all (planned).
+4. **Owners who already hold stablecoins** and don't want to off-ramp.
+5. **Owners without a US bank account,** later.
+
+## 6. Spend-authority standards (wallet paths)
 
 | | Coinbase Spend Permissions | ERC-7715 / ERC-7710 | Safe Allowance Module | Coinbase Agentic Wallets (MPC) |
 |---|---|---|---|---|
-| Status | Production; SpendPermissionManager `0xf85210B21cC50302F477BA56686d2019dC9b67Ad` on Base, Ethereum, Arbitrum, Optimism, Polygon, Avalanche, and Base/Ethereum Sepolia (CDP docs) | Draft ERCs with production implementations *(secondary sources)* | Production | Launched 2026-02-11 *(secondary source)* |
-| Enforcement | On-chain contract | On-chain (wallet-dependent) | On-chain | Provider's MPC policy layer |
-| Period limits | Yes | Yes | Yes | Yes |
+| Status | Production; SpendPermissionManager `0xf85210B21cC50302F477BA56686d2019dC9b67Ad` on Base, Ethereum, Arbitrum, Optimism, Polygon, Avalanche; testnets Base Sepolia and Ethereum Sepolia (CDP docs) | Draft ERCs with production implementations *(secondary)* | Production | Launched 2026-02-11 *(secondary)* |
+| Enforcement | On-chain | On-chain (wallet-dependent) | On-chain | Provider's MPC policy layer |
 | Spender-side revoke | `revokeAsSpender` (verified in contract source) | Varies | No | n/a |
-| Non-custodial | Yes | Yes | Yes | Provider holds a key share |
-| Choice | **MVP** | Adapter later | Adapter later | Not chosen |
+| Choice | **Used** | Adapter later | Adapter later | Not chosen |
 
-## 5. Agent payment protocols (context)
+## 7. Agent payment protocols (context)
 
-- **MCP 2026-07-28** is the current spec revision. Authorization is optional for local servers; remote servers use OAuth with Client ID Metadata Documents. Paygent v0.1 uses stdio and loopback HTTP with a bearer token, and remote OAuth is listed as later work.
-- **x402** (HTTP 402 stablecoin payments; v2 Dec 2025; moved to an x402 Foundation under the Linux Foundation in April 2026 *(secondary sources)*). Laso uses it. A future Paygent tool could pay x402 merchants directly from the allowance, with no card at all.
-- **AP2** (Google, Sept 2025): signed "mandates" proving user intent; x402 extension. Worth aligning approval records with AP2 mandates later.
-- **Visa Intelligent Commerce / Mastercard Agent Pay**: network-tokenized, agent-scoped credentials. This is the long-term answer to "PAN never in the agent's reach", but access runs through issuers and platforms, not individuals.
+- **MCP.** The current spec revision is 2026-07-28. The pinned TypeScript SDK (1.32.2) negotiates up to 2025-11-25. Paygent uses stdio and loopback HTTP with a bearer token; remote OAuth is later work.
+- **x402** *(secondary sources)*: v2 Dec 2025, x402 Foundation under the Linux Foundation from April 2026. Laso uses it.
+- **AP2** (Google, Sept 2025): signed mandates. Approval records could align with AP2 later.
+- **Visa Intelligent Commerce / Mastercard Agent Pay**: agent-scoped network tokens.
 
-## 6. Recommendation
+## 8. Could not verify
 
-**MVP (this repo):**
-1. Authority: Coinbase Spend Permissions on Base Sepolia, plus an in-process `mock` authority that implements the same per-period semantics for tests and dry runs.
-2. Issuer: `mock` (default) and `lithic-sandbox` (tested against recorded responses; works against the real Lithic sandbox with the owner's sandbox key).
-3. Laso: not shipped in v0.1. It needs the core to sign x402 payments (adapters never get keys), it has no sandbox to test against safely, and its identity-check model is an open question. Planned as a core-signed x402 funding path once those are resolved.
-4. Privacy.com: **no adapter** until its terms question is resolved in writing.
-
-**Before any live release:** get written confirmation from at least one issuer that (a) an individual may hold the account, (b) cards may be created and used through owner-configured automation, including AI agents, and (c) funding from the owner's own crypto off-ramp is acceptable. Without that, live mode stays unbuilt.
-
-## 7. Could not verify
-
-- Lithic sandbox: whether individuals without an entity are accepted; exact auth header format (adapter uses `Authorization: <api-key>`, confirm against Lithic docs).
-- Privacy.com: current sandbox URL; API plan pricing.
-- Laso: issuing bank, card network, state restrictions, compliance basis for no-KYC orders.
-- Fees for all on-ramps (aggregator figures only, and sources disagree).
-- Status of Coinbase's pivot from session keys to Sub Accounts.
+- Privacy.com: whether written permission for third-party agent use is available; sandbox URL; API key scoping; bank/debit funding fees.
+- Lithic: whether individuals without an entity are accepted in sandbox; exact auth header (adapter uses `Authorization: <api-key>`).
+- Coinbase CDP terms on AI-agent use (clause-level review not done); entity requirements for Onramp full access; whether guest checkout deprecation took effect on 2026-06-30.
+- On-ramp end-user fees (Coinbase's help-page estimate and aggregator figures disagree).
+- Laso: issuing bank, network, state restrictions, compliance basis for orders without identity checks.
+- Base Sepolia USDC address `0x036CbD53842c5426634e7929541eC2318f3dCF7e` (Circle's published testnet address as I recall it; confirm before testnet use).
 
 ## Sources
 
-- Coinbase CDP, Spend Permissions: https://docs.cdp.coinbase.com/wallets/using-wallets/spend-permissions
-- SpendPermissionManager source: https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol
-- Base tutorial, spend permissions: https://docs.base.org/tutorials/create-subscription-payments-with-spend-permissions
-- Privacy.com developer docs: https://developers.privacy.com/docs, MCP server: https://developers.privacy.com/docs/mcp-server.md, Cards: https://developers.privacy.com/docs/cards.md
-- Privacy.com terms: https://www.privacy.com/card-terms, https://privacy.com/terms
-- Lithic sign-up: https://docs.lithic.com/docs/sign-up; Lithic terms: https://lithic.com/legal
+Primary (provider docs and terms):
+- Privacy.com General Terms: https://privacy.com/terms; Payment/card terms: https://www.privacy.com/card-terms; pricing: https://privacy.com/pricing; agents page: https://agents.privacy.com
+- Privacy.com developer docs: https://developers.privacy.com/docs (getting-started, mcp-server, cards, funding-sources)
+- Lithic sign-up: https://docs.lithic.com/docs/sign-up
 - Stripe Issuing use cases: https://support.stripe.com/questions/supported-business-use-cases-for-stripe-issuing; onboarding: https://docs.stripe.com/issuing/onboarding-overview
-- Laso Finance prepaid card guide: https://docs.laso.finance/guides/usa-prepaid-card
-- MCP 2026-07-28 authorization: https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization; release post: https://blog.modelcontextprotocol.io/posts/2026-07-28/
-- On/off-ramp comparisons (secondary): https://eco.com/support/en/articles/15210390-best-stablecoin-onramps-2026-moonpay-transak-coinbase-onramp-compared, https://stablecoininsider.org/stablecoin-on-off-ramps/
-- Agent card landscape (secondary): https://www.crossmint.com/learn/agent-card-payments-compared, https://nevermined.ai/blog/ai-agent-card-delegation
-- x402 / AP2 (secondary): https://atxp.ai/blog/agent-payment-protocols-compared, https://techcrunch.com/2025/09/16/google-launches-new-protocol-for-agent-driven-purchases/
-- ERC-7715 (secondary): https://eco.com/support/en/articles/15254038-erc-7715-session-keys-2026-granular-permissions-explained
+- Stripe crypto onramp: https://docs.stripe.com/crypto/onramp
+- Coinbase Onramp: https://docs.cdp.coinbase.com/onramp/docs/welcome; Coinbase-hosted Onramp: https://docs.cdp.coinbase.com/onramp/coinbase-hosted-onramp/overview; session tokens: https://docs.cdp.coinbase.com/api-reference/rest-api/onramp-offramp/create-session-token; consumer fees: https://help.coinbase.com/en-gb/wallet/managing-account/buy-crypto
+- MoonPay partner onboarding: https://support.moonpay.com/en/articles/694185-partner-onboarding-overview-from-signup-to-going-live; launch guide: https://dev.moonpay.com/v1.0/docs/production-build
+- Coinbase Spend Permissions: https://docs.cdp.coinbase.com/wallets/using-wallets/spend-permissions; contract: https://github.com/coinbase/spend-permissions/blob/main/src/SpendPermissionManager.sol
+- Laso Finance: https://docs.laso.finance/guides/usa-prepaid-card
+- MCP 2026-07-28 authorization: https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
+
+Secondary *(unverified)*:
+- https://eco.com/support/en/articles/15210390-best-stablecoin-onramps-2026-moonpay-transak-coinbase-onramp-compared
+- https://stablecoininsider.org/stablecoin-on-off-ramps/
+- https://www.crossmint.com/learn/agent-card-payments-compared
+- https://atxp.ai/blog/agent-payment-protocols-compared
+- https://eco.com/support/en/articles/15254038-erc-7715-session-keys-2026-granular-permissions-explained
+- https://www.cloaked.com/post/privacy-com-alternatives

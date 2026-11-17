@@ -327,6 +327,9 @@ export class PaymentService {
     }
     try { result.sweep_refs = await this.#d.funding.sweep(); } catch (e) { result.sweep_error = (e as Error).message; }
     result.frozen_cards = frozenCards;
+    if (this.#d.funding.path === "fiat_direct") {
+      result.owner_action = "No on-chain authority on fiat_direct: rotate or delete your issuer API key in the provider's dashboard now.";
+    }
     if (errors.length) result.freeze_errors = errors;
     audit.append("kill_switch_completed", result);
     return result;

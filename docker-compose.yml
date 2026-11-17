@@ -1,0 +1,31 @@
+# One-command start:  docker compose run --rm paygent setup   (first time)
+#                     docker compose up -d
+# The daemon passphrase is read from a Docker secret file, never from an env var in this file.
+services:
+  paygent:
+    build: .
+    image: paygent:0.1.0
+    command: ["start"]
+    environment:
+      PAYGENT_HOME: /data
+      PAYGENT_PASSPHRASE_FILE: /run/secrets/paygent_daemon_passphrase
+    secrets: [paygent_daemon_passphrase]
+    volumes:
+      - paygent-data:/data
+    ports:
+      # Loopback only. Do not change to 0.0.0.0 without reading SECURITY.md ("Remote exposure").
+      - "127.0.0.1:7402:7402"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+
+secrets:
+  paygent_daemon_passphrase:
+    file: ./secrets/daemon_passphrase.txt
+
+volumes:
+  paygent-data:
