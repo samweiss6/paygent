@@ -1,0 +1,10 @@
+node_modules/
+.paygent/
+*.db
+*.db-*
+audit.log
+keystore.json
+.env
+.env.*
+coverage/
+.DS_Store
