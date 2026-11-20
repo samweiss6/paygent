@@ -1,0 +1,78 @@
+<!doctype html><meta charset="utf-8"><title>enc</title>
+<script type="module">
+import { Muxer, ArrayBufferTarget } from "/node_modules/mp4-muxer/build/mp4-muxer.mjs";
+const log = (m) => fetch("/log", { method: "POST", body: String(m) });
+const N = Number(location.hash.slice(1)), FPS = 30, W = 1920, H = 1080, SR = 48000;
+try {
+  const vcfg = { codec: "avc1.640028", width: W, height: H, bitrate: 10_000_000, framerate: FPS, avc: { format: "avc" } };
+  const vs = await VideoEncoder.isConfigSupported(vcfg);
+  if (!vs.supported) throw new Error("H.264 encoding not supported");
+  const acfg = { codec: "mp4a.40.2", sampleRate: SR, numberOfChannels: 2, bitrate: 160_000 };
+  const audioOk = (typeof AudioEncoder !== "undefined") && (await AudioEncoder.isConfigSupported(acfg)).supported;
+  log("audio supported: " + audioOk);
+
+  const muxer = new Muxer({ target: new ArrayBufferTarget(), fastStart: "in-memory",
+    video: { codec: "avc", width: W, height: H, frameRate: FPS },
+    ...(audioOk ? { audio: { codec: "aac", sampleRate: SR, numberOfChannels: 2 } } : {}) });
+
+  const venc = new VideoEncoder({ output: (c, m) => muxer.addVideoChunk(c, m), error: (e) => log("venc " + e) });
+  venc.configure(vcfg);
+  for (let i = 0; i < N; i++) {
+    const blob = await (await fetch(`/frames/${String(i).padStart(5, "0")}.jpg`)).blob();
+    const bmp = await createImageBitmap(blob);
+    const frame = new VideoFrame(bmp, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+    venc.encode(frame, { keyFrame: i % 60 === 0 });
+    frame.close(); bmp.close();
+    while (venc.encodeQueueSize > 8) await new Promise((r) => setTimeout(r, 5));
+  }
+  await venc.flush();
+
+  if (audioOk) {
+    const dur = N / FPS;
+    const ctx = new OfflineAudioContext(2, Math.ceil(dur * SR), SR);
+    const master = ctx.createGain(); master.gain.value = 0.0;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2200;
+    master.connect(lp); lp.connect(ctx.destination);
+    master.gain.setValueAtTime(0, 0); master.gain.linearRampToValueAtTime(0.22, 1.2);
+    master.gain.setValueAtTime(0.22, dur - 2.5); master.gain.linearRampToValueAtTime(0, dur);
+    const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    // Calm pad: Fmaj7 → Am7 → Dm9 → Bbmaj7 → F(add9) at the end card, changes on scene cuts.
+    const chords = [[0, [53, 60, 64, 69]], [5.2, [57, 64, 67, 72]], [9.6, [50, 57, 64, 65, 69]], [15.4, [58, 62, 65, 69]], [20.6, [53, 60, 67, 69]], [25.2, [50, 57, 62, 65]], [28.6, [53, 60, 65, 67, 72]]];
+    chords.forEach(([t, notes], i) => {
+      const end = i + 1 < chords.length ? chords[i + 1][0] + 0.6 : dur;
+      notes.forEach((m, j) => {
+        for (const [type, det, g] of [["sine", 0, 0.09], ["triangle", 6, 0.035]]) {
+          const o = ctx.createOscillator(); o.type = type; o.frequency.value = hz(m); o.detune.value = det * (j % 2 ? 1 : -1);
+          const e = ctx.createGain(); e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(g, t + 0.8); e.gain.setValueAtTime(g, end - 0.6); e.gain.linearRampToValueAtTime(0, end);
+          const pan = ctx.createStereoPanner(); pan.pan.value = (j / (notes.length - 1)) * 0.6 - 0.3;
+          o.connect(e); e.connect(pan); pan.connect(master); o.start(t); o.stop(end + 0.05);
+        }
+      });
+      // soft bell on each cut
+      const b = ctx.createOscillator(); b.type = "sine"; b.frequency.value = hz(notes.at(-1) + 12);
+      const bg = ctx.createGain(); bg.gain.setValueAtTime(0, t); bg.gain.linearRampToValueAtTime(0.05, t + 0.01); bg.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+      b.connect(bg); bg.connect(master); b.start(t); b.stop(t + 2);
+    });
+    // gentle pulse: muted plucks every half beat at 96 bpm from the product reveal to the end card
+    for (let t = 9.6; t < 28.6; t += 60 / 96 / 2) {
+      const chord = [...chords].reverse().find(([s]) => s <= t)[1];
+      const m = chord[Math.floor(t * 4) % chord.length] + 12;
+      const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = hz(m);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.025, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.3);
+    }
+    const buf = await ctx.startRendering();
+    const aenc = new AudioEncoder({ output: (c, m) => muxer.addAudioChunk(c, m), error: (e) => log("aenc " + e) });
+    aenc.configure(acfg);
+    const L = buf.getChannelData(0), R = buf.getChannelData(1), block = 1024;
+    for (let s = 0; s < buf.length; s += block) {
+      const len = Math.min(block, buf.length - s);
+      const data = new Float32Array(len * 2); data.set(L.subarray(s, s + len), 0); data.set(R.subarray(s, s + len), len);
+      aenc.encode(new AudioData({ format: "f32-planar", sampleRate: SR, numberOfFrames: len, numberOfChannels: 2, timestamp: Math.round(s * 1e6 / SR), data }));
+    }
+    await aenc.flush();
+  }
+  muxer.finalize();
+  await fetch("/out", { method: "POST", body: muxer.target.buffer });
+} catch (e) { log("ERROR " + e.message); }
+</script>

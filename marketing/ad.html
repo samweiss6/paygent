@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Paygent ad</title>
+<style>
+:root {
+  --bg: #f5f7fa; --surface: #fff; --raised: #eceff4; --hairline: rgba(17,24,39,.08); --hairline-strong: rgba(17,24,39,.14);
+  --text: #111827; --text-2: #4b5565; --text-3: #6b7487;
+  --accent: #1d4ed8; --positive: #16a34a; --caution: #b45309; --negative: #dc2626;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); }
+body { width: 1920px; height: 1080px; overflow: hidden; font-family: var(--font); color: var(--text); -webkit-font-smoothing: antialiased; }
+#stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+.scene { position: absolute; inset: 0; opacity: 0; }
+[data-in] { opacity: 0; will-change: opacity, transform; }
+.icon { width: 1em; height: 1em; stroke: currentColor; stroke-width: 1.5; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+h1 { font-size: 76px; line-height: 84px; font-weight: 500; letter-spacing: -.025em; margin: 0; }
+.sub { font-size: 30px; line-height: 42px; color: var(--text-2); margin: 24px 0 0; max-width: 720px; }
+.kicker { font-size: 24px; line-height: 32px; color: var(--text-3); margin: 0 0 20px; }
+
+/* panels */
+.panel { background: var(--surface); border-radius: 24px; box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 24px 48px -24px rgba(17,24,39,.18), inset 0 0 0 1px var(--hairline); }
+
+/* S1 chat */
+.chat { position: absolute; left: 160px; top: 280px; width: 780px; height: 500px; padding: 32px; display: flex; flex-direction: column; gap: 20px; }
+.chat-head { display: flex; align-items: center; gap: 12px; font-size: 22px; color: var(--text-2); padding-bottom: 20px; border-bottom: 1px solid var(--hairline); }
+.chat-head .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--positive); }
+.bubble { max-width: 560px; padding: 18px 24px; border-radius: 20px; font-size: 26px; line-height: 36px; }
+.bubble.me { align-self: flex-end; background: var(--text); color: #fff; border-bottom-right-radius: 6px; }
+.bubble.agent { align-self: flex-start; background: var(--raised); border-bottom-left-radius: 6px; }
+.typing { display: inline-flex; gap: 8px; padding: 22px 24px; }
+.typing i { width: 10px; height: 10px; border-radius: 50%; background: var(--text-3); display: block; }
+.merchant { font-family: var(--mono); font-size: .92em; }
+.s1-copy { position: absolute; left: 1060px; top: 360px; width: 720px; }
+
+/* S2 context */
+.ctx { position: absolute; left: 440px; top: 470px; width: 1040px; padding: 40px 48px; font: 34px/56px var(--mono); color: var(--text-2); }
+.ctx-label { font: 22px/32px var(--font); color: var(--text-3); margin-bottom: 16px; }
+.ctx .val { color: var(--text); position: relative; }
+.strike { position: absolute; left: -8px; right: -8px; top: 50%; height: 4px; background: var(--negative); transform-origin: left; border-radius: 2px; }
+.s2-copy { position: absolute; left: 0; right: 0; top: 170px; text-align: center; }
+.s2-copy .sub { margin: 20px auto 0; max-width: 900px; }
+
+/* card object */
+.pcard { position: relative; width: 600px; height: 378px; border-radius: 28px; padding: 36px; color: #fff; overflow: hidden;
+  display: grid; grid-template-rows: auto 1fr auto auto;
+  background: radial-gradient(140% 90% at 0% 0%, rgba(255,255,255,.2), rgba(255,255,255,0) 55%), linear-gradient(155deg, #2a5ae6 0%, #1d4ed8 45%, #1739a8 100%);
+  box-shadow: 0 2px 2px rgba(0,0,0,.08), 0 40px 80px -30px rgba(17,24,39,.45), inset 0 1px 0 rgba(255,255,255,.25), inset 0 0 0 1px rgba(255,255,255,.06); }
+.pcard .sheen { position: absolute; inset: -40%; background: linear-gradient(115deg, rgba(255,255,255,0) 44%, rgba(255,255,255,.14) 50%, rgba(255,255,255,0) 56%); pointer-events: none; }
+.pcard.spent { background: linear-gradient(155deg, #8b93a3 0%, #6f7787 100%); }
+.pc-top { display: flex; justify-content: space-between; font-size: 24px; }
+.pc-top b { font-weight: 600; }
+.pc-top span { opacity: .82; }
+.chip { margin-top: 28px; width: 72px; height: 54px; border-radius: 10px; position: relative; background: linear-gradient(135deg, #e9dcb2, #c8b27a 50%, #e4d3a1); box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.chip::before { content: ""; position: absolute; inset: 16px 0; border-top: 2px solid rgba(0,0,0,.16); border-bottom: 2px solid rgba(0,0,0,.16); }
+.chip::after { content: ""; position: absolute; inset: 0 24px; border-left: 2px solid rgba(0,0,0,.16); border-right: 2px solid rgba(0,0,0,.16); }
+.pc-num { font: 36px/44px var(--mono); letter-spacing: .08em; }
+.pc-foot { margin-top: 16px; display: flex; justify-content: space-between; align-items: end; font-size: 24px; }
+.pc-foot .lock { display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono); }
+.pc-foot .cap { text-align: right; font-family: var(--mono); }
+.pc-foot .cap small { display: block; font: 18px var(--font); opacity: .75; }
+
+/* S3 */
+.s3-logo { position: absolute; left: 0; right: 0; top: 112px; display: flex; justify-content: center; align-items: center; gap: 16px; font-size: 44px; font-weight: 600; }
+.s3-card { position: absolute; left: 660px; top: 300px; perspective: 1600px; }
+.callout { position: absolute; display: flex; align-items: center; gap: 16px; font-size: 30px; line-height: 40px; color: var(--text); }
+.callout .tick { width: 36px; height: 36px; border-radius: 50%; background: rgba(29,78,216,.1); color: var(--accent); display: grid; place-items: center; font-size: 22px; }
+.co-l { right: 1310px; text-align: right; flex-direction: row-reverse; }
+.co-r { left: 1310px; }
+.s3-copy { position: absolute; left: 0; right: 0; top: 820px; text-align: center; }
+.s3-copy h1 { font-size: 56px; line-height: 64px; }
+
+/* S4 approval */
+.approve { position: absolute; left: 160px; top: 250px; width: 900px; padding: 36px 40px 40px; }
+.ap-head { font-size: 28px; font-weight: 500; display: flex; gap: 12px; align-items: baseline; margin-bottom: 24px; }
+.ap-head .count { font: 24px var(--mono); color: var(--text-3); font-weight: 400; }
+.ap-row { display: grid; grid-template-columns: 1fr auto; gap: 8px 24px; }
+.ap-row .who { font-size: 32px; display: flex; align-items: center; gap: 10px; }
+.ap-row .who .icon { font-size: 26px; color: var(--text-3); }
+.ap-row .amt { font-size: 40px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.ap-row .meta { font-size: 24px; color: var(--text-3); }
+.note { grid-column: 1 / -1; margin-top: 16px; padding: 16px 20px; border-radius: 14px; background: var(--raised); font-size: 24px; color: var(--text-2); }
+.note small { display: block; font-size: 19px; color: var(--text-3); }
+.actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 16px; margin-top: 24px; }
+.btn { height: 64px; padding: 0 32px; border-radius: 14px; font-size: 26px; font-weight: 500; display: inline-flex; align-items: center; gap: 12px; }
+.btn.secondary { background: #fff; box-shadow: inset 0 0 0 1.5px var(--hairline-strong); }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.done { background: var(--positive); }
+.btn.kill { background: #fff; color: var(--negative); box-shadow: inset 0 0 0 1.5px rgba(220,38,38,.35); height: 56px; font-size: 24px; }
+.toast { position: absolute; left: 610px; top: 860px; transform: translateX(-50%); background: var(--text); color: #fff; padding: 18px 28px; border-radius: 14px; font-size: 24px; display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+.s4-copy { position: absolute; left: 1180px; top: 380px; width: 620px; }
+
+/* S5 limits */
+.tiles { position: absolute; left: 160px; top: 420px; display: flex; gap: 32px; }
+.tile { width: 420px; padding: 36px; }
+.tile .label { font-size: 24px; color: var(--text-2); }
+.tile .fig { font-size: 64px; font-weight: 500; margin-top: 12px; font-variant-numeric: tabular-nums; }
+.tile .of { font-size: 22px; color: var(--text-3); margin-top: 8px; }
+.track { height: 8px; border-radius: 4px; background: var(--raised); margin-top: 32px; overflow: hidden; }
+.fill { height: 100%; background: var(--accent); border-radius: 4px; width: 0; }
+.deny { position: absolute; left: 1100px; top: 470px; width: 660px; padding: 36px 40px; }
+.deny .row1 { display: flex; justify-content: space-between; font-size: 32px; }
+.deny .row1 .amt { font-weight: 500; font-variant-numeric: tabular-nums; }
+.status { display: inline-flex; align-items: center; gap: 12px; font-size: 26px; color: var(--text-2); margin-top: 16px; }
+.status::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--caution); }
+.status.denied::before { background: var(--negative); }
+.why { font-size: 22px; color: var(--text-3); margin: 6px 0 0 24px; }
+.s5-copy { position: absolute; left: 160px; top: 150px; }
+
+/* S6 kill */
+.bar { position: absolute; left: 160px; right: 160px; top: 340px; height: 112px; padding: 0 36px; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 14px; font-size: 32px; font-weight: 600; }
+.bar-right { display: flex; align-items: center; gap: 32px; }
+.state { display: inline-flex; align-items: center; gap: 12px; font-size: 26px; color: var(--text-2); }
+.state::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: var(--positive); }
+.state.frozen { color: var(--negative); }
+.state.frozen::before { background: var(--negative); }
+.frozen-notice { position: absolute; left: 160px; right: 160px; top: 488px; padding: 32px 40px; border-radius: 20px; background: #fef2f2; box-shadow: inset 0 0 0 1.5px rgba(220,38,38,.16); }
+.frozen-notice b { display: block; font-size: 30px; font-weight: 500; color: var(--negative); }
+.frozen-notice span { font-size: 24px; color: var(--text-2); }
+.s6-copy { position: absolute; left: 0; right: 0; top: 720px; text-align: center; }
+.s6-copy .sub { margin: 20px auto 0; max-width: 1100px; }
+
+/* S7 end */
+.end { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.end .lockup { display: flex; align-items: center; gap: 24px; font-size: 104px; font-weight: 600; letter-spacing: -.02em; }
+.end h1 { margin-top: 40px; font-size: 60px; line-height: 72px; color: var(--text); }
+.end .facts { margin-top: 36px; font-size: 28px; color: var(--text-2); }
+.end .fine { position: absolute; bottom: 64px; font-size: 22px; color: var(--text-3); }
+
+/* cursor */
+#cursor { position: absolute; left: 0; top: 0; width: 44px; height: 44px; opacity: 0; z-index: 20; filter: drop-shadow(0 4px 8px rgba(0,0,0,.18)); }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- S1: the agent wants to buy -->
+  <section class="scene" id="s1" data-in="0" data-out="5.2">
+    <div class="chat panel">
+      <div class="chat-head"><span class="dot"></span>Your AI agent</div>
+      <div class="bubble me" data-in="0.5">Find me a paperback of <i style="font-style:normal">The Left Hand of Darkness</i></div>
+      <div class="bubble agent typing" id="typing" data-in="1.3" data-out="2.3"><i></i><i></i><i></i></div>
+      <div class="bubble agent" data-in="2.3" style="margin-top:-96px">Found it at <span class="merchant">bookshop.org</span> for $6.50. Ready to check out.</div>
+    </div>
+    <div class="s1-copy">
+      <p class="kicker" data-in="3.0">Agents can shop now</p>
+      <h1 data-in="3.2">So how does it pay?</h1>
+    </div>
+  </section>
+
+  <!-- S2: the problem -->
+  <section class="scene" id="s2" data-in="5.2" data-out="9.6">
+    <div class="s2-copy">
+      <h1 data-in="5.4">Give it your card, and the number<br>lives in its memory</h1>
+      <p class="sub" data-in="6.0">Any page it reads can try to talk it into spending</p>
+    </div>
+    <div class="ctx panel" data-in="6.4">
+      <div class="ctx-label">What your agent would see</div>
+      <div>card_number: <span class="val">4242 4242 4242 4242<span class="strike" id="strike1"></span></span></div>
+      <div>cvv: <span class="val">123<span class="strike" id="strike2"></span></span></div>
+    </div>
+  </section>
+
+  <!-- S3: the product -->
+  <section class="scene" id="s3" data-in="9.6" data-out="15.4">
+    <div class="s3-logo" data-in="9.8"><svg width="56" height="56" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="#1d4ed8"/><rect x="2" y="9" width="20" height="2.5" fill="#fff"/><rect x="5" y="14.5" width="5" height="1.5" rx=".75" fill="#fff"/></svg>Paygent</div>
+    <div class="s3-card"><div class="pcard" id="card3">
+      <div class="sheen" id="sheen3"></div>
+      <div class="pc-top"><b>Paygent</b><span>Single use</span></div>
+      <div><div class="chip"></div></div>
+      <div class="pc-num">•••• •••• •••• 8134</div>
+      <div class="pc-foot"><span class="lock"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>bookshop.org</span><span class="cap"><small>Limit</small>$6.83</span></div>
+    </div></div>
+    <div class="callout co-l" style="top:356px" data-in="11.6"><span class="tick">✓</span>Works at bookshop.org only</div>
+    <div class="callout co-l" style="top:556px" data-in="12.1"><span class="tick">✓</span>One charge, then it's done</div>
+    <div class="callout co-r" style="top:356px" data-in="12.6"><span class="tick">✓</span>Capped at the price</div>
+    <div class="callout co-r" style="top:556px" data-in="13.1"><span class="tick">✓</span>Your agent never sees the number</div>
+    <div class="s3-copy"><h1 data-in="13.7">A fresh card for every purchase</h1></div>
+  </section>
+
+  <!-- S4: approval -->
+  <section class="scene" id="s4" data-in="15.4" data-out="20.6">
+    <div class="approve panel">
+      <div class="ap-head">Needs your approval <span class="count">1</span></div>
+      <div class="ap-row">
+        <div>
+          <div class="who"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span class="merchant">bookshop.org</span></div>
+          <div class="meta">New merchant · card limit $6.83</div>
+        </div>
+        <div class="amt">$6.50</div>
+        <div class="note"><small>Your agent's note, not verified</small>Paperback: The Left Hand of Darkness</div>
+        <div class="actions"><span class="btn secondary">Reject</span><span class="btn primary" id="approveBtn">Approve $6.50</span></div>
+      </div>
+    </div>
+    <div class="toast" id="toast4" data-in="18.0"><svg class="icon" viewBox="0 0 24 24" style="font-size:26px"><path d="M5 12l5 5L20 7"/></svg>Card ready at bookshop.org &nbsp;•••• 8134</div>
+    <div class="s4-copy">
+      <h1 data-in="15.7">New merchant?<br>It asks you first</h1>
+      <p class="sub" data-in="16.2">Everything else follows the limits you set</p>
+    </div>
+  </section>
+
+  <!-- S5: limits -->
+  <section class="scene" id="s5" data-in="20.6" data-out="25.2">
+    <div class="s5-copy">
+      <h1 data-in="20.8">Limits live outside the agent</h1>
+      <p class="sub" data-in="21.2" style="max-width:1100px">It can't edit them, and it can't talk its way past them</p>
+    </div>
+    <div class="tiles">
+      <div class="tile panel" data-in="21.4"><div class="label">Left today</div><div class="fig" id="today">$50.00</div><div class="of">of $50.00 · up to $25.00 each</div><div class="track"><div class="fill" id="fill1"></div></div></div>
+      <div class="tile panel" data-in="21.6"><div class="label">Left this month</div><div class="fig" id="month">$200.00</div><div class="of">of $200.00</div><div class="track"><div class="fill" id="fill2"></div></div></div>
+    </div>
+    <div class="deny panel" data-in="22.6">
+      <div class="row1"><span class="merchant">steampowered.com</span><span class="amt">$60.00</span></div>
+      <div class="status" id="denyStatus">Checking your limits</div>
+      <div class="why" id="denyWhy" style="opacity:0">Over the $25.00 per-payment limit</div>
+    </div>
+  </section>
+
+  <!-- S6: kill switch -->
+  <section class="scene" id="s6" data-in="25.2" data-out="28.6">
+    <div class="bar panel">
+      <div class="brand"><svg width="40" height="40" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="#1d4ed8"/><rect x="2" y="9" width="20" height="2.5" fill="#fff"/><rect x="5" y="14.5" width="5" height="1.5" rx=".75" fill="#fff"/></svg>Paygent</div>
+      <div class="bar-right"><span class="state" id="state6">Active</span><span class="btn kill" id="killBtn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>Kill switch</span></div>
+    </div>
+    <div class="frozen-notice" data-in="26.6"><b>Paygent is frozen</b><span>No new payments, and every open card is frozen</span></div>
+    <div class="s6-copy">
+      <h1 data-in="25.4">One switch stops everything</h1>
+      <p class="sub" data-in="25.8">Pending requests cancelled, open cards frozen, in one click</p>
+    </div>
+  </section>
+
+  <!-- S7: end card -->
+  <section class="scene" id="s7" data-in="28.6" data-out="99">
+    <div class="end">
+      <div class="lockup" data-in="28.8"><svg width="120" height="120" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3" fill="#1d4ed8"/><rect x="2" y="9" width="20" height="2.5" fill="#fff"/><rect x="5" y="14.5" width="5" height="1.5" rx=".75" fill="#fff"/></svg>Paygent</div>
+      <h1 data-in="29.4">Let your agent pay, on your terms</h1>
+      <p class="facts" data-in="30.0">Open source · Self-hosted · Works with any MCP agent</p>
+      <p class="fine" data-in="30.4">v0.1 runs in test mode. No real money moves yet.</p>
+    </div>
+  </section>
+
+  <svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l16 9.5-7 1.5-3.5 7z" fill="#111827" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
+</div>
+
+<script>
+const DURATION = 33;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const easeOut = (x) => 1 - Math.pow(1 - clamp(x), 4);
+const easeInOut = (x) => { x = clamp(x); return x < .5 ? 8 * x ** 4 : 1 - Math.pow(-2 * x + 2, 4) / 2; };
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, x) => a + (b - a) * x;
+const $ = (id) => document.getElementById(id);
+const money = (v) => "$" + v.toFixed(2);
+
+const items = [...document.querySelectorAll("[data-in]")];
+
+function cursorAt(el, dx = 0.6, dy = 0.6) {
+  const r = el.getBoundingClientRect();
+  return [r.left + r.width * dx, r.top + r.height * dy];
+}
+function placeCursor(path, t) {
+  const c = $("cursor");
+  // path: [{t, at:[x,y]}...], opacity from first to last + 0.6s
+  if (t < path[0].t - 0.3 || t > path.at(-1).t + 0.8) return false;
+  let p = path[0].at;
+  for (let i = 1; i < path.length; i++) {
+    if (t >= path[i - 1].t && t <= path[i].t) { const k = easeInOut(prog(t, path[i - 1].t, path[i].t)); p = [lerp(path[i - 1].at[0], path[i].at[0], k), lerp(path[i - 1].at[1], path[i].at[1], k)]; break; }
+    if (t > path[i].t) p = path[i].at;
+  }
+  const o = Math.min(prog(t, path[0].t - 0.3, path[0].t), 1 - prog(t, path.at(-1).t + 0.4, path.at(-1).t + 0.8));
+  c.style.opacity = o; c.style.transform = `translate(${p[0]}px, ${p[1]}px)`;
+  return true;
+}
+
+window.render = function render(t) {
+  for (const el of items) {
+    const a = +el.dataset.in, b = el.dataset.out ? +el.dataset.out : Infinity;
+    const isScene = el.classList.contains("scene");
+    const dur = isScene ? 0.45 : 0.6;
+    const inK = easeOut(prog(t, a, a + dur));
+    const outK = b === Infinity ? 0 : easeOut(prog(t, b - 0.35, b));
+    el.style.opacity = (inK * (1 - outK)).toFixed(4);
+    if (!isScene && !el.classList.contains("toast")) el.style.transform = `translateY(${(1 - inK) * 16}px)`;
+    if (isScene) el.style.transform = `translateY(${-outK * 12}px)`;
+    el.style.visibility = inK * (1 - outK) < 0.001 ? "hidden" : "visible";
+  }
+
+  // S1 typing dots
+  document.querySelectorAll("#typing i").forEach((d, i) => { d.style.opacity = 0.35 + 0.65 * Math.max(0, Math.sin((t * 6) - i * 0.9)); });
+
+  // S2 strikes
+  $("strike1").style.transform = `translateY(-50%) scaleX(${easeOut(prog(t, 7.3, 7.9))})`;
+  $("strike2").style.transform = `translateY(-50%) scaleX(${easeOut(prog(t, 7.6, 8.1))})`;
+
+  // S3 card entrance: rises and settles from a tilt, light sweeps across once
+  const k3 = easeOut(prog(t, 10.2, 11.4));
+  $("card3").style.transform = `translateY(${(1 - k3) * 120}px) rotateX(${(1 - k3) * 28}deg) rotateZ(${(1 - k3) * -4}deg)`;
+  $("card3").style.opacity = k3;
+  $("sheen3").style.transform = `translateX(${lerp(-60, 60, easeInOut(prog(t, 11.0, 12.6)))}%)`;
+
+  // S4 approve click
+  const ab = $("approveBtn");
+  const clicked = t >= 17.55;
+  ab.className = "btn primary" + (clicked ? " done" : "");
+  ab.textContent = clicked ? "Approved" : "Approve $6.50";
+  const press = t >= 17.45 && t < 17.65 ? 0.96 : 1;
+  ab.style.transform = `scale(${press})`;
+
+  // S5 meters fill, then the $60 attempt is denied
+  const k5 = easeOut(prog(t, 21.8, 22.8));
+  const used = 6.5 * k5;
+  $("today").textContent = money(50 - used); $("month").textContent = money(200 - used);
+  $("fill1").style.width = `${(used / 50) * 100}%`; $("fill2").style.width = `${(used / 200) * 100}%`;
+  const denied = t >= 23.6;
+  $("denyStatus").textContent = denied ? "Denied" : "Checking your limits";
+  $("denyStatus").className = "status" + (denied ? " denied" : "");
+  $("denyWhy").style.opacity = easeOut(prog(t, 23.6, 24.0));
+
+  // S6 kill
+  const killed = t >= 26.35;
+  $("state6").textContent = killed ? "Frozen" : "Active";
+  $("state6").className = "state" + (killed ? " frozen" : "");
+  $("killBtn").style.transform = `scale(${t >= 26.25 && t < 26.45 ? 0.96 : 1})`;
+
+  // cursor
+  const c = $("cursor"); c.style.opacity = 0;
+  if (t >= 16 && t < 19) placeCursor([{ t: 16.5, at: [1300, 900] }, { t: 17.4, at: cursorAt(ab) }], t);
+  else if (t >= 25.3 && t < 27.5) placeCursor([{ t: 25.6, at: [1500, 700] }, { t: 26.2, at: cursorAt($("killBtn")) }], t);
+};
+window.DURATION = DURATION;
+render(0);
+</script>
+</body>
+</html>

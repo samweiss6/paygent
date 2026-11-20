@@ -1,0 +1,7 @@
+{
+  "name": "paygent-marketing",
+  "private": true,
+  "description": "Renders the Paygent video ad in headless Chrome (WebCodecs H.264/AAC). Not part of the Paygent runtime.",
+  "scripts": { "ad": "node make.mjs video paygent-ad.mp4", "stills": "node make.mjs stills 1.2,3.8,8.4,11.0,14.6,18.4,24.4,27.4,31.5" },
+  "devDependencies": { "mp4-muxer": "5.2.2" }
+}
