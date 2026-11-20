@@ -16,6 +16,8 @@ import { AuditLog } from "./audit.ts";
 import { proposePermission } from "./authority/spend-permission.ts";
 import { centsToUsdcUnits, usdToCents, centsToUsd } from "./money.ts";
 import { readManifest } from "./adapters/host.ts";
+import { controlRequest } from "./owner-client.ts";
+import { looser } from "./policy/diff.ts";
 
 const P = getPaths();
 const out = (x: unknown) => process.stdout.write((typeof x === "string" ? x : JSON.stringify(x, null, 2)) + "\n");
@@ -64,21 +66,7 @@ async function ownerKey(): Promise<string> {
 
 // ---------- control socket ----------
 
-function control(method: "GET" | "POST", path: string, body?: unknown): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const req = http.request({ socketPath: P.socket, path, method, headers: { "Content-Type": "application/json" } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        const data = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
-        if ((res.statusCode ?? 500) >= 400) reject(new Error(data.error?.message ?? data.error ?? `HTTP ${res.statusCode}`)); else resolve(data);
-      });
-    });
-    req.on("error", (e: NodeJS.ErrnoException) => reject(new Error(e.code === "ENOENT" || e.code === "ECONNREFUSED" ? `daemon not running (no socket at ${P.socket}); run "paygent start"` : e.message)));
-    if (body !== undefined) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
+const control = (method: "GET" | "POST", path: string, body?: unknown) => controlRequest(P.socket, method, path, body);
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(`--${name}`);
@@ -210,21 +198,6 @@ async function policyCmd(args: string[]) {
   catch { out("Policy saved; the daemon isn't running."); }
 }
 
-/** True if changing `path` from `before` to `after` gives the agent more room. Unknown shapes count as loosening. */
-function looser(before: unknown, after: unknown, path: string): boolean {
-  const stricterWhenTrue = ["require_for_new_merchant", "allow_only_listed"];
-  const shrinkingIsLooser = path.endsWith("deny") || path === "blocked_keywords";
-  if (typeof before === "string" && typeof after === "string" && /^\d/.test(before)) return usdToCents(after) > usdToCents(before);
-  if (typeof before === "number" && typeof after === "number") return after > before;
-  if (typeof before === "boolean" && typeof after === "boolean") {
-    return stricterWhenTrue.some((k) => path.endsWith(k)) ? before && !after : !before && after;
-  }
-  if (Array.isArray(before) && Array.isArray(after)) {
-    return shrinkingIsLooser ? before.some((x) => !after.includes(x)) : after.some((x) => !before.includes(x));
-  }
-  return true;
-}
-
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
   switch (cmd) {
@@ -232,6 +205,11 @@ async function main() {
     case "start": {
       const { startDaemon } = await import("./daemon.ts");
       await startDaemon(await secret("Daemon passphrase", "PAYGENT_DAEMON_PASSPHRASE"));
+      return;
+    }
+    case "ui": {
+      const { startUi } = await import("./ui/server.ts");
+      await startUi(Number(flag(args, "port") ?? 7403));
       return;
     }
     case "mcp": { const { runStdioBridge } = await import("./mcp/stdio-bridge.ts"); return runStdioBridge(); }
@@ -329,6 +307,7 @@ async function main() {
   setup [--funding fiat_direct|fiat_onramp|crypto_wallet] [--authority mock|base-sepolia] [--issuer mock|lithic-sandbox|<dir>]
   start                      run the daemon (MCP on 127.0.0.1:7402)
   mcp                        stdio bridge for agents that launch MCP servers
+  ui [--port 7403]           owner dashboard in your browser (needs the daemon running)
   status | pending | doctor
   approve <id> | reject <id> | hw-submit <id> <exp> <sig>
   reveal <id>                show a card to you (owner) in this terminal

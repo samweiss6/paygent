@@ -70,6 +70,7 @@ export function controlHandler(rt: Runtime) {
             open: rt.ledger.listByStatus(["pending_approval", "approved", "funding", "issued"]).map((r) => ({ id: r.id, status: r.status, merchant: r.merchant, amount_cents: r.amount_cents })),
             audit_head: rt.audit.head, issuer: rt.config.issuer.id });
         }
+        case "GET /payments": return send(res, 200, rt.ledger.listRecent(Number(url.searchParams.get("limit") ?? 50)).map((r) => ({ ...rt.service.getPayment(r.id), description: r.description, created_at: r.created_at, settled_usd: r.settled_cents === null ? null : (r.settled_cents / 100).toFixed(2) })));
         case "GET /pending": return send(res, 200, rt.service.listPending().map((p) => ({ ...p, description: rt.ledger.get(p.payment_id)?.description })));
         case "GET /payment": {
           const row = rt.ledger.get(url.searchParams.get("id") ?? "");
@@ -132,6 +133,11 @@ export async function startDaemon(daemonPassphrase: string) {
     : http.createServer(handler);
   await new Promise<void>((r) => mcp.listen(port, listenHost, r));
 
+  // macOS limits Unix socket paths to 104 bytes (Linux: 108); a long PAYGENT_HOME would fail with EINVAL.
+  if (Buffer.byteLength(p.socket) > 103) {
+    mcp.close();
+    throw new Error(`control socket path is too long for this OS (${Buffer.byteLength(p.socket)} bytes, max 103): ${p.socket}. Set PAYGENT_HOME to a shorter directory.`);
+  }
   if (existsSync(p.socket)) unlinkSync(p.socket);
   const control = http.createServer(controlHandler(rt));
   const oldMask = process.umask(0o177);

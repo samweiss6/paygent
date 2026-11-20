@@ -153,6 +153,10 @@ export class Ledger {
     return Number(r.changes) === 1;
   }
 
+  listRecent(limit: number): PaymentRow[] {
+    return this.db.prepare("SELECT * FROM payments ORDER BY created_at DESC LIMIT ?").all(Math.min(Math.max(1, limit), 200)) as unknown as PaymentRow[];
+  }
+
   listByStatus(statuses: PaymentStatus[]): PaymentRow[] {
     return this.db.prepare(`SELECT * FROM payments WHERE status IN (${statuses.map(() => "?").join(",")}) ORDER BY created_at`)
       .all(...statuses) as unknown as PaymentRow[];
