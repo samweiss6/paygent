@@ -41,6 +41,18 @@ function h(tag, props = {}, ...children) {
   return el;
 }
 const $ = (id) => document.getElementById(id);
+const SVG = "http://www.w3.org/2000/svg";
+function lockIcon() {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("class", "icon"); svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of [["rect", { x: "4", y: "11", width: "16", height: "10", rx: "2" }], ["path", { d: "M8 11V7a4 4 0 0 1 8 0v4" }]]) {
+    const el = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); svg.append(el);
+  }
+  return svg;
+}
+/** Signature: a merchant a card is (or will be) locked to. */
+const lockedMerchant = (domain, locked = true, align = false) => h("span", { class: "merchant", title: locked ? `Card works only at ${domain}` : null },
+  locked ? lockIcon() : align ? h("span", { class: "icon-space", "aria-hidden": "true" }) : null, h("span", { text: domain }));
 const money = (usd) => `$${Number(usd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const cents = (c) => money(c / 100);
 const when = (iso) => {
@@ -71,10 +83,10 @@ const FUNDING_LABEL = { fiat_direct: "Bank or debit card", fiat_onramp: "On-ramp
 let last = null;
 let policyDirty = false;
 
-function setConn(state, text) { const c = $("conn"); c.dataset.state = state; c.textContent = text; }
+function setState(state, text) { const c = $("state"); c.dataset.state = state; c.textContent = text; }
 
 function toast(msg, isError = false) {
-  const t = h("div", { class: `toast glass${isError ? " err" : ""}`, role: isError ? "alert" : "status", text: msg });
+  const t = h("div", { class: `toast${isError ? " err" : ""}`, role: isError ? "alert" : "status", text: msg });
   $("toasts").append(t);
   setTimeout(() => t.remove(), isError ? 7000 : 4000);
 }
@@ -83,34 +95,60 @@ function toast(msg, isError = false) {
 function renderStats(d) {
   const lim = d.policy.limits;
   const rem = d.status.policy_remaining;
-  const tile = (id, ...children) => $(id).replaceChildren(...children.filter(Boolean));
-  const meter = (used, total) => {
-    const pct = total > 0 ? Math.min(100, Math.max(0, (used / total) * 100)) : 0;
-    const bar = h("span"); bar.style.width = `${pct}%`;
-    return h("div", { class: "meter", role: "meter", "aria-label": "Used", "aria-valuemin": "0", "aria-valuemax": String(total), "aria-valuenow": String(used), dataset: { level: pct >= 85 ? "high" : "normal" } }, bar);
+  const spend = (id, label, left, cap, note) => {
+    const used = Math.max(0, cap - left);
+    const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
+    const fill = h("div", { class: "meter-fill" }); fill.style.width = `${pct}%`;
+    $(id).replaceChildren(
+      h("div", { class: "label", text: label }),
+      h("div", { class: "figure", text: money(left) }),
+      h("div", { class: "of", text: `left of ${money(cap)} · ${note}` }),
+      h("div", { class: "meter", dataset: { level: pct >= 85 ? "high" : "normal" } },
+        h("div", { class: "meter-track", role: "meter", "aria-label": `${label}: ${money(used)} used`, "aria-valuemin": "0", "aria-valuemax": String(cap), "aria-valuenow": String(used) }, fill),
+        h("div", { class: "meter-scale" }, h("span", { text: `${money(used)} used` }), h("span", { text: money(cap) }))),
+    );
   };
-  const spend = (id, label, left, cap, sub) => tile(id,
-    h("div", { class: "label", text: label }),
-    h("div", { class: "value" }, money(left), " ", h("small", { text: `left of ${money(cap)}` })),
-    meter(cap - left, cap),
-    h("div", { class: "sub", text: sub }));
-  spend("stat-today", "Today", rem ? Number(rem.today_usd) : 0, Number(lim.daily_usd), `Up to ${money(lim.per_transaction_usd)} per payment`);
-  spend("stat-month", "This month", rem ? Number(rem.this_month_usd) : 0, Number(lim.monthly_usd), "Resets on the 1st (UTC)");
-
-  const f = d.status.funding;
-  const ext = f.externalLimit;
-  tile("stat-funding",
-    h("div", { class: "label", text: "Paid from" }),
-    h("div", { class: "value text", text: FUNDING_LABEL[f.path] ?? f.path }),
-    h("div", { class: "sub", text: ext
-      ? `On-chain allowance: ${cents(ext.remainingCents)} left today${ext.revoked ? " (revoked)" : ""}`
-      : `Single-use cards from ${d.status.issuer}` }));
+  spend("stat-today", "Left today", rem ? Number(rem.today_usd) : 0, Number(lim.daily_usd), `up to ${money(lim.per_transaction_usd)} each`);
+  spend("stat-month", "Left this month", rem ? Number(rem.this_month_usd) : 0, Number(lim.monthly_usd), "resets on the 1st");
+  renderCard(d);
 
   const frozen = !!d.status.frozen;
-  const pill = $("state-pill"); pill.dataset.state = frozen ? "frozen" : "active"; pill.textContent = frozen ? "Frozen" : "Active";
+  setState(frozen ? "frozen" : "active", frozen ? "Frozen" : "Active");
   $("frozen-banner").hidden = !frozen;
   if (frozen && d.status.frozen_at) $("frozen-detail").textContent = `Since ${when(d.status.frozen_at)}. No new payments, and every open card is frozen.`;
   $("kill").disabled = frozen;
+}
+
+/** The moment: the most recent single-use card, drawn as a card. Last 4 only, never the number. */
+function renderCard(d) {
+  const f = d.status.funding;
+  const withCard = d.payments.filter((p) => p.card);
+  const p = withCard.find((x) => x.status === "issued") ?? withCard[0];
+  const funding = h("div", { class: "row" }, "Paid from ", h("b", { text: FUNDING_LABEL[f.path] ?? f.path }));
+  const ext = f.externalLimit
+    ? h("div", { class: "row", text: `On-chain allowance ${cents(f.externalLimit.remainingCents)} left today${f.externalLimit.revoked ? ", revoked" : ""}` })
+    : h("div", { class: "row", text: `Cards from ${d.status.issuer}` });
+  if (!p) {
+    $("stat-card").replaceChildren(
+      h("div", { class: "pcard-empty", text: "Cards appear here once you approve a payment" }),
+      h("div", { class: "card-meta" }, h("div", { class: "label", text: "Latest card" }), funding, ext));
+    return;
+  }
+  const live = p.status === "issued";
+  const exp = p.card.expires_at ? new Date(p.card.expires_at) : null;
+  const face = h("div", { class: "pcard", dataset: { state: live ? "live" : "spent" }, role: "img",
+    "aria-label": `Single-use card ending ${p.card.last4}, locked to ${p.merchant}, limit ${money(p.card_cap_usd)}` },
+    h("div", { class: "pcard-top" }, h("span", { class: "issuer", text: "Paygent" }), h("span", { class: "use", text: live ? "Single use" : (STATUS_LABEL[p.status] ?? p.status) })),
+    h("div", {}, h("div", { class: "chip" })),
+    h("div", { class: "pcard-number", text: `•••• •••• •••• ${p.card.last4}` }),
+    h("div", { class: "pcard-foot" },
+      h("span", { class: "lock" }, lockIcon(), h("span", { text: p.merchant })),
+      h("span", { class: "cap" }, h("small", { text: "Limit" }), money(p.card_cap_usd))),
+  );
+  $("stat-card").replaceChildren(face, h("div", { class: "card-meta" },
+    h("span", { class: `status s-${p.status}`, text: live ? `Ready at ${p.merchant}` : `${STATUS_LABEL[p.status] ?? p.status} · ${p.merchant}` }),
+    live && exp ? h("div", { class: "row", text: `Expires ${when(exp.toISOString())}` }) : null,
+    funding, ext));
 }
 
 function renderPending(d) {
@@ -122,14 +160,16 @@ function renderPending(d) {
     const hw = p.approval.level === "hardware";
     box.append(h("article", { class: "request", "aria-label": `${p.merchant}, ${money(p.amount_usd)}` },
       h("div", {},
-        h("div", { class: "who", text: p.merchant }),
-        h("div", { class: "meta" }, `Card limit ${money(p.card_cap_usd)}`, p.approval.expires_at ? ` · decide by ${when(p.approval.expires_at)}` : ""),
+        h("div", { class: "who" }, lockedMerchant(p.merchant)),
+        h("div", { class: "sub" },
+          p.approval.reasons.map((r, i) => [i ? " · " : "", h("span", { class: r === "above_hardware_threshold" ? "tag-caution" : "", text: REASON_LABEL[r] ?? r })]),
+          ` · card limit ${money(p.card_cap_usd)}`,
+          p.approval.expires_at ? ` · decide by ${when(p.approval.expires_at)}` : ""),
       ),
       h("div", { class: "amount", text: money(p.amount_usd) }),
-      h("div", { class: "chips" }, p.approval.reasons.map((r) => h("span", { class: `chip${r === "above_hardware_threshold" ? " chip-warn" : ""}`, text: REASON_LABEL[r] ?? r }))),
-      p.description ? h("div", { class: "quote" }, h("span", { class: "quote-label", text: "Your agent's note (not verified)" }), p.description) : null,
+      p.description ? h("div", { class: "note" }, h("span", { class: "note-label", text: "Your agent's note, not verified" }), p.description) : null,
       h("div", { class: "actions" },
-        h("button", { class: "btn btn-ghost", type: "button", onclick: () => openDecision(p, "reject"), text: "Reject" }),
+        h("button", { class: "btn btn-secondary", type: "button", onclick: () => openDecision(p, "reject"), text: "Reject" }),
         hw
           ? h("button", { class: "btn btn-primary", type: "button", disabled: true, title: "Approve with your hardware wallet: paygent approve " + p.payment_id, text: "Needs hardware wallet" })
           : h("button", { class: "btn btn-primary", type: "button", onclick: () => openDecision(p, "approve"), text: `Approve ${money(p.amount_usd)}` }),
@@ -140,12 +180,12 @@ function renderPending(d) {
 
 function renderPayments(d) {
   const t = $("payments"); t.replaceChildren();
-  if (!d.payments.length) { t.append(h("tbody", {}, h("tr", {}, h("td", { class: "empty", text: "No payments yet." })))); return; }
+  if (!d.payments.length) { t.append(h("tbody", {}, h("tr", {}, h("td", { class: "empty", text: "No payments yet" })))); return; }
   t.append(h("thead", {}, h("tr", {},
     h("th", { text: "Merchant" }), h("th", { class: "num", text: "Amount" }), h("th", { text: "Status" }),
-    h("th", { text: "Card" }), h("th", { text: "Agent's note" }), h("th", { class: "num", text: "When" }))));
+    h("th", { text: "Card" }), h("th", { text: "Agent's note" }), h("th", { class: "num", text: "Time" }))));
   t.append(h("tbody", {}, d.payments.map((p) => h("tr", {},
-    h("td", { class: "merchant", text: p.merchant }),
+    h("td", { class: "m" }, lockedMerchant(p.merchant, !!p.card, true)),
     h("td", { class: "num", text: money(p.settled_usd ?? p.amount_usd) }),
     h("td", { class: "status-cell" }, h("span", { class: `status s-${p.status}`, text: STATUS_LABEL[p.status] ?? p.status }),
       p.deny_reason ? h("span", { class: "why", text: DENY_LABEL[p.deny_reason] ?? p.deny_reason }) : null),
@@ -167,22 +207,22 @@ function renderPolicy(d) {
     h("textarea", { name, spellcheck: "false", placeholder, rows: Math.max(2, Math.min(6, values.length)) }, values.join("\n")));
   f.append(
     h("div", { class: "form-grid" },
-      h("div", { class: "group-label", text: "Spending limits" }),
+      h("div", { class: "group", text: "Spending limits" }),
       usd("limits.per_transaction_usd", "Per payment", p.limits.per_transaction_usd),
       usd("limits.per_merchant_daily_usd", "Per merchant, daily", p.limits.per_merchant_daily_usd),
       usd("limits.daily_usd", "Per day", p.limits.daily_usd),
       usd("limits.monthly_usd", "Per month", p.limits.monthly_usd),
       num("limits.max_payments_per_hour", "Payments per hour", p.limits.max_payments_per_hour, 1, 1000),
-      h("div", { class: "group-label", text: "When to ask you" }),
+      h("div", { class: "group", text: "When to ask you" }),
       usd("approval.require_above_usd", "Ask above", p.approval.require_above_usd),
       h("label", { class: "field check" }, h("input", { type: "checkbox", name: "approval.require_for_new_merchant", checked: p.approval.require_for_new_merchant }),
         h("span", { text: "Ask before paying a merchant for the first time" })),
-      h("div", { class: "group-label", text: "Merchants" }),
+      h("div", { class: "group", text: "Merchants" }),
       list("merchants.allow", "Trusted (no first-time check)", p.merchants.allow, "example.com"),
       list("merchants.deny", "Never pay", p.merchants.deny, "example.com"),
     ),
     h("div", { class: "form-actions", dataset: { dirty: "false" } },
-      h("button", { class: "btn btn-ghost", type: "button", onclick: () => { policyDirty = false; renderPolicy(last); }, text: "Discard" }),
+      h("button", { class: "btn btn-secondary", type: "button", onclick: () => { policyDirty = false; renderPolicy(last); }, text: "Discard" }),
       h("button", { class: "btn btn-primary", type: "submit", text: "Review and sign" })),
   );
 }
@@ -224,12 +264,11 @@ function render(d) {
 }
 
 async function refresh() {
-  if (!token()) { setConn("down", "No dashboard token"); showNoToken(); return; }
+  if (!token()) { setState("down", "No dashboard token"); showNoToken(); return; }
   try {
     render(await api("GET", "/api/overview"));
-    setConn("live", "Connected");
   } catch (e) {
-    setConn("down", e.status === 401 ? "Link expired" : e.message.includes("daemon not running") ? "Daemon not running" : "Disconnected");
+    setState("down", e.status === 401 ? "Link expired" : e.message.includes("daemon not running") ? "Daemon not running" : "Disconnected");
     if (e.status === 401) showNoToken();
   }
 }
@@ -275,7 +314,7 @@ function openDecision(p, decision) {
       ? ["Paygent will issue a single-use card capped at ", h("strong", { text: money(p.card_cap_usd) }), " that works for one charge and expires within the hour."]
       : ["The agent will be told you rejected it. Nothing is charged."]),
     okText: approve ? "Approve" : "Reject",
-    okClass: approve ? "btn-primary" : "btn-danger",
+    okClass: approve ? "btn-primary" : "btn-destructive",
     action: async (passphrase) => {
       const r = await api("POST", "/api/decision", { payment_id: p.payment_id, decision, passphrase });
       toast(approve ? (r.status === "issued" ? `Card ready for ${p.merchant} (•••• ${r.card?.last4 ?? ""})` : `Approved; status: ${STATUS_LABEL[r.status] ?? r.status}`) : "Rejected");
@@ -296,7 +335,7 @@ $("kill").addEventListener("click", () => openSheet({
   title: "Freeze everything now?",
   body: h("p", { class: "summary", text: "Stops all new payments, freezes every open card, cancels pending requests, and revokes the on-chain spend permission if you use a wallet. You'll need your owner passphrase to unfreeze." }),
   okText: "Freeze everything",
-  okClass: "btn-danger",
+  okClass: "btn-destructive",
   needsPass: false,
   action: async () => {
     const r = await api("POST", "/api/kill", { confirm: "kill" });

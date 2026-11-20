@@ -10,59 +10,61 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <div class="backdrop" aria-hidden="true"></div>
-
-  <header class="topbar glass">
+  <header class="topbar">
     <div class="brand">
-      <img src="/icon.svg" alt="" width="28" height="28">
+      <img src="/icon.svg" alt="" width="24" height="24">
       <span class="wordmark">Paygent</span>
-      <span class="pill pill-test" title="No real money moves in v0.1">Test mode</span>
-      <span class="pill pill-state" id="state-pill"></span>
+      <span class="mode" title="No real money moves in v0.1">Test mode</span>
     </div>
     <div class="topbar-right">
-      <span id="conn" class="conn" role="status" aria-live="polite">Connecting…</span>
-      <button id="kill" class="btn btn-kill" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v6M4.4 3.6a5.5 5.5 0 1 0 7.2 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Kill switch</button>
+      <span id="state" class="state" role="status" aria-live="polite">Connecting</span>
+      <button id="kill" class="btn btn-sm btn-kill" type="button">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>
+        Kill switch
+      </button>
     </div>
   </header>
 
-  <div id="frozen-banner" class="banner glass" role="alert" hidden>
-    <div><strong>Paygent is frozen</strong><span id="frozen-detail">No new payments, and every open card is frozen.</span></div>
-    <button id="unfreeze" class="btn btn-ghost" type="button">Unfreeze…</button>
+  <div id="frozen-banner" class="notice" role="alert" hidden>
+    <div class="notice-inner">
+      <div><strong>Paygent is frozen</strong><span id="frozen-detail">No new payments, and every open card is frozen.</span></div>
+      <button id="unfreeze" class="btn btn-sm btn-secondary" type="button">Unfreeze</button>
+    </div>
   </div>
 
   <main id="app" class="layout" aria-busy="true">
-    <section class="stats" aria-label="Spending">
-      <article class="glass stat" id="stat-today"></article>
-      <article class="glass stat" id="stat-month"></article>
-      <article class="glass stat stat-funding" id="stat-funding"></article>
+    <section class="overview" aria-label="Spending">
+      <article class="tile" id="stat-today"></article>
+      <article class="tile" id="stat-month"></article>
+      <article class="tile tile-card" id="stat-card"></article>
     </section>
 
     <div class="main">
-      <section class="glass panel" aria-labelledby="h-pending">
-        <div class="panel-head"><h2 id="h-pending">Waiting for you <span class="count" id="pending-count"></span></h2></div>
+      <section class="panel" aria-labelledby="h-pending">
+        <div class="panel-head"><h2 id="h-pending">Needs your approval <span class="count" id="pending-count"></span></h2></div>
         <div id="pending"></div>
       </section>
 
-      <section class="glass panel" aria-labelledby="h-payments">
-        <div class="panel-head"><h2 id="h-payments">Payments</h2><span class="hint">Last 40</span></div>
+      <section class="panel" aria-labelledby="h-payments">
+        <div class="panel-head"><h2 id="h-payments">Payments</h2><span class="meta">Last 40</span></div>
         <table id="payments"></table>
       </section>
 
-      <section class="glass panel" aria-labelledby="h-audit">
-        <div class="panel-head"><h2 id="h-audit">Audit log</h2><span id="audit-verify" class="hint"></span></div>
+      <section class="panel" aria-labelledby="h-audit">
+        <div class="panel-head"><h2 id="h-audit">Audit log</h2><span id="audit-verify" class="meta"></span></div>
         <ol id="audit" class="audit"></ol>
       </section>
     </div>
 
     <aside class="aside">
-      <section class="glass panel" aria-labelledby="h-policy">
+      <section class="panel" aria-labelledby="h-policy">
         <div class="panel-head"><h2 id="h-policy">Limits and rules</h2></div>
         <form id="policy" novalidate></form>
       </section>
     </aside>
   </main>
 
-  <dialog id="sheet" class="sheet glass">
+  <dialog id="sheet" class="sheet">
     <form method="dialog" id="sheet-form">
       <h3 id="sheet-title"></h3>
       <div id="sheet-body"></div>
@@ -72,7 +74,7 @@
       </label>
       <p id="sheet-error" class="error" role="alert"></p>
       <div class="sheet-actions">
-        <button value="cancel" class="btn btn-ghost" type="button" id="sheet-cancel">Cancel</button>
+        <button value="cancel" class="btn btn-secondary" type="button" id="sheet-cancel">Cancel</button>
         <button value="ok" class="btn btn-primary" id="sheet-ok" type="submit"></button>
       </div>
     </form>
