@@ -16,50 +16,50 @@
     <div class="brand">
       <img src="/icon.svg" alt="" width="28" height="28">
       <span class="wordmark">Paygent</span>
-      <span class="badge badge-test" title="No real money moves in v0.1">Test mode</span>
+      <span class="pill pill-test" title="No real money moves in v0.1">Test mode</span>
+      <span class="pill pill-state" id="state-pill"></span>
     </div>
     <div class="topbar-right">
       <span id="conn" class="conn" role="status" aria-live="polite">Connecting…</span>
-      <button id="kill" class="btn btn-danger" type="button">Kill switch</button>
+      <button id="kill" class="btn btn-kill" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v6M4.4 3.6a5.5 5.5 0 1 0 7.2 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Kill switch</button>
     </div>
   </header>
+
+  <div id="frozen-banner" class="banner glass" role="alert" hidden>
+    <div><strong>Paygent is frozen</strong><span id="frozen-detail">No new payments, and every open card is frozen.</span></div>
+    <button id="unfreeze" class="btn btn-ghost" type="button">Unfreeze…</button>
+  </div>
 
   <main id="app" class="layout" aria-busy="true">
     <section class="stats" aria-label="Spending">
       <article class="glass stat" id="stat-today"></article>
       <article class="glass stat" id="stat-month"></article>
-      <article class="glass stat" id="stat-funding"></article>
-      <article class="glass stat" id="stat-state"></article>
+      <article class="glass stat stat-funding" id="stat-funding"></article>
     </section>
 
-    <section class="glass panel" aria-labelledby="h-pending">
-      <div class="panel-head">
-        <h2 id="h-pending">Waiting for you</h2>
-        <span class="count" id="pending-count"></span>
-      </div>
-      <div id="pending"></div>
-    </section>
+    <div class="main">
+      <section class="glass panel" aria-labelledby="h-pending">
+        <div class="panel-head"><h2 id="h-pending">Waiting for you <span class="count" id="pending-count"></span></h2></div>
+        <div id="pending"></div>
+      </section>
 
-    <section class="glass panel" aria-labelledby="h-payments">
-      <div class="panel-head"><h2 id="h-payments">Payments</h2></div>
-      <div class="table-wrap"><table id="payments"></table></div>
-    </section>
+      <section class="glass panel" aria-labelledby="h-payments">
+        <div class="panel-head"><h2 id="h-payments">Payments</h2><span class="hint">Last 40</span></div>
+        <table id="payments"></table>
+      </section>
 
-    <section class="glass panel" aria-labelledby="h-policy">
-      <div class="panel-head">
-        <h2 id="h-policy">Limits and rules</h2>
-        <span class="hint">Changes need your owner passphrase</span>
-      </div>
-      <form id="policy" novalidate></form>
-    </section>
+      <section class="glass panel" aria-labelledby="h-audit">
+        <div class="panel-head"><h2 id="h-audit">Audit log</h2><span id="audit-verify" class="hint"></span></div>
+        <ol id="audit" class="audit"></ol>
+      </section>
+    </div>
 
-    <section class="glass panel" aria-labelledby="h-audit">
-      <div class="panel-head">
-        <h2 id="h-audit">Audit log</h2>
-        <span id="audit-verify" class="hint"></span>
-      </div>
-      <ol id="audit" class="audit"></ol>
-    </section>
+    <aside class="aside">
+      <section class="glass panel" aria-labelledby="h-policy">
+        <div class="panel-head"><h2 id="h-policy">Limits and rules</h2></div>
+        <form id="policy" novalidate></form>
+      </section>
+    </aside>
   </main>
 
   <dialog id="sheet" class="sheet glass">

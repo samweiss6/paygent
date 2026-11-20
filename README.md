@@ -83,6 +83,7 @@ paygent status | pending | doctor
 paygent approve <id> | reject <id>
 paygent reveal <id>                 show a card to you, in your terminal
 paygent topup <usd>                 fiat_onramp: start a top-up on the provider's page
+paygent ui                          owner dashboard in your browser
 paygent kill                        freeze everything now (see below)
 paygent unfreeze
 paygent policy show | policy set limits.daily_usd '"40.00"'
@@ -91,6 +92,22 @@ paygent audit verify | head | tail
 ```
 
 **Kill switch.** `paygent kill` stops new payments immediately, revokes the on-chain allowance (wallet paths), freezes every open card, cancels pending requests, and returns any spender balance to your wallet. On `fiat_direct`, also rotate your issuer API key in the provider's dashboard. On wallet paths you can always revoke from your own wallet on another device, without Paygent.
+
+## Dashboard
+
+```sh
+paygent ui            # prints http://127.0.0.1:7403/#token=…
+```
+
+`paygent ui` opens an owner dashboard in your browser: what's left to spend today and this month, payments waiting for you, recent payments, your limits, the audit log, and the kill switch. It's a separate process from the daemon, with the same rights as the CLI.
+
+- The link carries a one-time token. Without it the dashboard shows nothing.
+- Approving a payment, unfreezing, or changing limits needs your owner passphrase each time. Five wrong tries lock those actions for a minute.
+- Changes that loosen your limits are listed for you to check before you sign them.
+- The kill switch needs only the link, since it can only take spending power away.
+- Payments that need a hardware wallet signature are still approved from the CLI.
+
+Open the dashboard in a browser your agent doesn't control.
 
 ## Choosing a funding path
 
