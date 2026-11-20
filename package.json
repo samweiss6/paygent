@@ -5,8 +5,12 @@
   "license": "Apache-2.0",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=24.0.0" },
-  "bin": { "paygent": "bin/paygent.js" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "paygent": "bin/paygent.js"
+  },
   "scripts": {
     "start": "node bin/paygent.js start",
     "setup": "node bin/paygent.js setup",
@@ -21,5 +25,14 @@
   "devDependencies": {
     "@types/node": "24.19.2",
     "typescript": "7.0.2"
-  }
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "SECURITY.md"
+  ]
 }
